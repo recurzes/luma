@@ -10,8 +10,8 @@ Discord bot for the Lab Manual Architect dev team.
 cp .env.example .env
 # fill in .env values
 
-pip install -r requirements.txt
-python devbot/bot.py
+pip install .
+python app/bot.py
 ```
 
 ## Docker
@@ -21,13 +21,13 @@ docker-compose up --build
 ```
 
 Services:
-- `devbot` — Discord bot (port N/A, outbound only)
-- `devbot-webhooks` — FastAPI webhook bridge (port 8100)
+- `lumabot` — Discord bot (port N/A, outbound only)
+- `lumabot-webhooks` — FastAPI webhook bridge (port 8100)
 
 ## Structure
 
 ```
-devbot/
+app/
 ├── bot.py          # entry point
 ├── config.py       # Pydantic settings (fail-fast on missing vars)
 ├── database.py     # Supabase client singleton
