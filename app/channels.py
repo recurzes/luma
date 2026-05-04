@@ -1,0 +1,15 @@
+CHANNEL_MANIFEST: dict[str, tuple[str, str]] = {
+    "task_feed":      ("task-feed",       "Live ticket status updates"),
+    "standup_log":    ("standup-log",     "Compiled daily standups"),
+    "github_feed":    ("github-feed",     "Commits, PRs, and CI results"),
+    "code_review":    ("code-review",     "PR assignments and tier warnings"),
+    "phase_tracker":  ("phase-tracker",   "Phase progress and exit criteria"),
+    "help":           ("help",            "/stuck help threads"),
+    "shoutouts":      ("shoutouts",       "Kudos and milestone posts"),
+    "announcements":  ("announcements",   "Phase completions and sprint news"),
+    "tip_of_the_day": ("tip-of-the-day",  "Daily dev tip"),
+    "resources":      ("resources",       "/share resource drops"),
+    "retro":          ("retro",           "Sprint retrospective prompts"),
+    "rankings":       ("rankings",        "Weekly XP leaderboard"),
+    "general":        ("general",         "Mood check-ins and general chat"),
+}

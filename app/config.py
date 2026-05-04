@@ -37,4 +37,8 @@ class Settings(BaseSettings):
     # Optional
     DEBUG: bool = Field(default=False, description="Enable verbose/pretty logging")
 
+    # Discord role names
+    DISCORD_ROLE_LEAD: str = Field(default="Lead", description="Discord role name for the lead developer")
+    DISCORD_ROLE_PROFESSOR: str = Field(default="Professor", description="Discord role name for the professor")
+
 settings = Settings()
