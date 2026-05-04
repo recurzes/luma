@@ -12,3 +12,4 @@ wheels/
 # Shit
 notes/
 .idea
+.env
