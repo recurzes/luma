@@ -6,7 +6,6 @@ import discord
 import structlog
 from discord import app_commands
 from discord.ext import commands
-from sqlalchemy.orm import descriptor_props
 
 from app import database
 from app.config import settings
