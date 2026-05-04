@@ -14,7 +14,7 @@ from app.services.member_service import MemberService
 
 log = structlog.get_logger()
 
-_VALID_STATUSES = {"todo" "in_progress", "in_review", "done"}
+_VALID_STATUSES = {"todo", "in_progress", "in_review", "done"}
 _VALID_TIERS = {"T1", "T2", "T3"}
 _TIER_ORDER = {"T1": 1, "T2": 2, "T3": 3}
 
@@ -321,7 +321,7 @@ class TicketService:
             )
 
         stats_result = await self._run(_fetch_stats)
-        current = stats_result.data[0]["tickets.closed"] if stats_result.data else 0
+        current = stats_result.data[0]["tickets_closed"] if stats_result.data else 0
 
         def _update_stats():
             return (
