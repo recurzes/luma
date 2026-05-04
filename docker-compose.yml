@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  lumabot:
+    build: .
+    container_name: lumabot
+    restart: unless-stopped
+    command: python -m app.bot
+    env_file: .env
+    networks:
+      - lma_network
+
+  lumabot-webhooks:
+    build: .
+    container_name: lumabot-webhooks
+    restart: unless-stopped
+    command: uvicorn app.webhooks.main:app --host 0.0.0.0 --port 8100
+    ports:
+      - "8100:8100"
+    env_file: .env
+    networks:
+      - lma_network
+
+networks:
+  lma_network:
+    external: true
