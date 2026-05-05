@@ -127,7 +127,7 @@ class StreakService:
 
         return broken
 
-    async def at_risk_member(self) -> list[Member]:
+    async def at_risk_members(self) -> list[Member]:
         today = date.today().isoformat()
         all_members = await self._members.get_all_active()
         at_risk: list[Member] = []
