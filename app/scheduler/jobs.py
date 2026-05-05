@@ -1,44 +1,81 @@
 from __future__ import annotations
 
 import structlog
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from discord.ext import commands
 
 log = structlog.get_logger()
 
-async def standup_dm() -> None:
-    raise NotImplementedError
+
+def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+    _register_standup_jobs(scheduler, bot)
+    _register_xp_jobs(scheduler, bot)
 
 
-async def standup_compile() -> None:
-    raise NotImplementedError
+def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+    cog = bot.cogs.get("StandupCog")
+    if cog is None:
+        log.warning("jobs.standup_cog_missing", hint="StandupCog not loaded — standup jobs skipped")
+        return
+
+    scheduler.add_job(
+        cog._standup_dm_job,
+        "cron",
+        day_of_week="mon-fri",
+        hour=9,
+        minute=0,
+        id="standup_dm",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        cog._standup_compile_job,
+        "cron",
+        day_of_week="mon-fri",
+        hour=9,
+        minute=30,
+        id="standup_compile",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        cog._standup_nag_job,
+        "cron",
+        day_of_week="mon-fri",
+        hour=9,
+        minute=45,
+        id="standup_nag",
+        replace_existing=True
+    )
+    log.info("jobs.standup_registered")
 
 
-async def standup_nag() -> None:
-    raise NotImplementedError
+def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+    cog = bot.cogs.get("XPCog")
+    if cog is None:
+        log.warning("jobs.xp_cog_missing", hint="XPCog not loaded — XP/streak jobs skipped")
+        return
 
-
-async def stuck_check() -> None:
-    raise NotImplementedError
-
-
-async def stale_ticket_check() -> None:
-    raise NotImplementedError
-
-
-async def streak_check() -> None:
-    raise NotImplementedError
-
-
-async def leaderboard_post() -> None:
-    raise NotImplementedError
-
-
-async def tip_of_day() -> None:
-    raise NotImplementedError
-
-
-async def mood_checkin() -> None:
-    raise NotImplementedError
-
-
-async def pr_stale_check() -> None:
-    raise NotImplementedError
+    scheduler.add_job(
+        cog._leader_post_job,
+        "cron",
+        day_of_week="fri",
+        hour=17,
+        minute=0,
+        id="leaderboard_post",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        cog._streak_check_job,
+        "cron",
+        hour=23,
+        minute=50,
+        id="streak_check",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        cog._streak_risk_dm_job,
+        "cron",
+        hour=20,
+        minute=0,
+        id="streak_risk_dm",
+        replace_existing=True
+    )

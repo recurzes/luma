@@ -294,7 +294,7 @@ class TicketService:
         xp_result = None
         if self._xp and target_member:
             action = f"close_t{closed.tier.lower()}"
-            xp_result = await self._xp_award(str(target_member.id), action, metadata={"ticket_id": str(closed.id)})
+            xp_result = await self._xp.award(str(target_member.id), action, metadata={"ticket_id": str(closed.id)})
 
         if self._streak and target_member:
             await self._streak.record_activity(str(target_member.id), "ticket_closed")
