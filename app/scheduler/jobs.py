@@ -9,6 +9,7 @@ log = structlog.get_logger()
 
 def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
     _register_standup_jobs(scheduler, bot)
+    _register_xp_jobs(scheduler, bot)
 
 
 def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
@@ -45,3 +46,36 @@ def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> No
         replace_existing=True
     )
     log.info("jobs.standup_registered")
+
+
+def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+    cog = bot.cogs.get("XPCog")
+    if cog is None:
+        log.warning("jobs.xp_cog_missing", hint="XPCog not loaded — XP/streak jobs skipped")
+        return
+
+    scheduler.add_job(
+        cog._leader_post_job,
+        "cron",
+        day_of_week="fri",
+        hour=17,
+        minute=0,
+        id="leaderboard_post",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        cog._streak_check_job,
+        "cron",
+        hour=23,
+        minute=50,
+        id="streak_check",
+        replace_existing=True
+    )
+    scheduler.add_job(
+        cog._streak_risk_dm_job,
+        "cron",
+        hour=20,
+        minute=0,
+        id="streak_risk_dm",
+        replace_existing=True
+    )
