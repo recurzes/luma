@@ -60,7 +60,7 @@ class LumaBot(commands.Bot):
         await self._load_cogs()
         self.scheduler.start()
         log.info("scheduler.started")
-        self.tree.on_error = self._on_app_command_error
+        self.loop.create_task(self._github_event_poll_loop())
 
     async def _load_cogs(self) -> None:
         cogs_path = Path(__file__).parent / "cogs"
