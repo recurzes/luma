@@ -44,4 +44,13 @@ class Settings(BaseSettings):
     # GitHub
     GITHUB_TOKEN: str = Field(default="", description="GitHub personal access token for API calls")
 
+    T3_PROTECTED_PATHS: list[str] = Field(
+        default=[
+            "frontend/src/store/",
+            "backend/app/schemas/blocks.py",
+            "frontend/src/types/blocks.ts",
+        ],
+        description="File path prefixes that trigger the T3 file guard warning",
+    )
+
 settings = Settings()

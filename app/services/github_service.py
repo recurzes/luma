@@ -65,7 +65,7 @@ class GitHubService:
         return Member.model_validate(result.data[0])
 
     # Dispatcher
-    
+
     async def dispatch(self, event_row: dict) -> None:
         event_type = event_row.get("event_type", "")
         handlers = {
@@ -82,7 +82,6 @@ class GitHubService:
                 log.error("github.dispatch.error", event_type=event_type, error=str(e))
         else:
             log.debug("github.dispatch.unknown", event_type=event_type)
-
 
     # Operations
     async def process_push(self, event_row: dict) -> None:
@@ -142,7 +141,6 @@ class GitHubService:
             )
 
         log.info("github.pr.processed", action=action, pr_number=pr_number)
-
 
     async def _handle_pr_merged(self, event_row: dict, pr: dict, author_member: Member | None, pr_body: str) -> None:
         pr_number = pr.get("number")
@@ -218,7 +216,99 @@ class GitHubService:
         embed = build_ci_failure_embed(check_name=name, conclusion=conclusion, url=url)
         await self._post_to_channel("github_feed", embed)
 
+    # TS `any` guard
+
+    async def _check_any_usage(self, repo_full: str, pr_number: int, author: Member) -> None:
+        files = await self._fetch_pr_files(repo_full, pr_number)
+        violations: dict[str, int] = {}
+
+        for f in files:
+            filename: str = f.get("filename", "")
+            if not filename.endswith((".ts", ".tsx")):
+                continue
+            patch: str = f.get("patch", "") or ""
+            count = 0
+            for line in patch.splitlines():
+                if not line.startswith("+"):
+                    continue
+                if _COMMENT_LINE_RE.match(line):
+                    continue
+                count += len(_ANY_RE.findall(line))
+            if count:
+                violations[filename] = count
+
+        if violations:
+            lines = [f"- `{fn}` (+{n}) occurrence{'s' if n > 1 else ''}" for fn, n in violations.items()]
+            embed = discord.Embed(
+                title=f"⚠️ PR #{pr_number} — TypeScript `any` detected",
+                description=f"**{author.discord_name}**'s PR contains `any` usage:\n" + "\n".join(
+                    lines) + "\n\nAction: review before merging",
+                color=discord.Color.yellow()
+            )
+            await self._post_to_channel("code_review", embed)
+
+    async def _check_t3_paths(self, repo_full: str, pr_number: int, author: Member):
+        files = await self._fetch_pr_files(repo_full, pr_number)
+        protected_hits: list[str] = []
+
+        for f in files:
+            filename: str = f.get("filename", "")
+            for path_prefix in settings.T3_PROTECTED_PATHS:
+                if filename.startswith(path_prefix) or filename == path_prefix:
+                    protected_hits.append(filename)
+                    break
+
+        if protected_hits:
+            lines = [f"- `{f}`" for f in protected_hits]
+            embed = discord.Embed(
+                title=f"⚠️ PR #{pr_number} — Architect-tier files modified",
+                description=f"**{author.discord_name}**'s PR touches protected paths:\n" + "\n".join(
+                    lines) + "\n\nAction required: verbal walkthrough before merge.",
+                color=discord.Color.red(),
+            )
+            await self._post_to_channel("code_review", embed)
+
+    # Review Rotation
+    async def assign_reviewer(self, author_member: Member | None, pr_title: str) -> Member | None:
+        all_members = await self._members.get_all_active()
+
+        tier_match = re.search(r'\[T([123])\]', pr_title, re.IGNORECASE)
+        pr_tier = f"T{tier_match.group(1)}" if tier_match else "T1"
+
+        candidates = [
+            m for m in all_members
+            if (author_member is None or m.id != author_member.id)
+               and (pr_tier == "T1" or m.role in ("lead", "professor"))
+        ]
+        if not candidates:
+            return None
+
+        global _reviewer_queue
+        if not _reviewer_queue or set(str(m.id) for m in candidates) != set(_reviewer_queue):
+            _reviewer_queue = deque(str(m.id) for m in candidates)
+
+        next_id = _reviewer_queue[0]
+        _reviewer_queue.rotate(-1)
+        return next((m for m in candidates if str(m.id) == next_id), candidates[0])
+
     # Helpers
+
+    async def _fetch_pr_files(self, repo_full: str, pr_number: int) -> list[dict]:
+        if not settings.GITHUB_TOKEN:
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{repo_full}/pulls/{pr_number}/files",
+                    headers={"Authorization": f"toke {settings.GITHUB_TOKEN}",
+                             "Accept": "application/vnd.github.v3+json"}
+                )
+                if resp.status_code == 200:
+                    return resp.json()
+        except Exception as e:
+            log.warning("github.fetch_pr_files.error", error=str(e))
+
+        return []
 
     async def _post_to_channel(self, channel_key: str, embed) -> None:
         if self._bot is None:
