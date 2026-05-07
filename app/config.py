@@ -41,4 +41,7 @@ class Settings(BaseSettings):
     DISCORD_ROLE_LEAD: str = Field(default="Lead", description="Discord role name for the lead developer")
     DISCORD_ROLE_PROFESSOR: str = Field(default="Professor", description="Discord role name for the professor")
 
+    # GitHub
+    GITHUB_TOKEN: str = Field(default="", description="GitHub personal access token for API calls")
+
 settings = Settings()
