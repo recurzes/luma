@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import pkgutil
 import time
-from html.entities import name
+from datetime import datetime, timezone
 from pathlib import Path
 
 import discord
@@ -20,6 +21,8 @@ log = structlog.get_logger()
 
 _start_time = time.monotonic()
 
+_last_event_poll: str = datetime.now(timezone.utc).isoformat()
+
 
 def _configure_logging() -> None:
     shared_processors: list = [
@@ -28,10 +31,7 @@ def _configure_logging() -> None:
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso")
     ]
-    if settings.DEBUG:
-        renderer = structlog.dev.ConsoleRenderer()
-    else:
-        renderer = structlog.processors.JSONRenderer()
+    renderer = structlog.dev.ConsoleRenderer() if settings.DEBUG else structlog.processors.JSONRenderer()
 
     structlog.configure(
         processors=shared_processors + [renderer],
@@ -60,7 +60,7 @@ class LumaBot(commands.Bot):
         await self._load_cogs()
         self.scheduler.start()
         log.info("scheduler.started")
-        self.tree.on_error = self._on_app_command_error
+        self.loop.create_task(self._github_event_poll_loop())
 
     async def _load_cogs(self) -> None:
         cogs_path = Path(__file__).parent / "cogs"
@@ -85,6 +85,50 @@ class LumaBot(commands.Bot):
         )
         if not db_ok:
             log.warning("supabase.unreachable", hint="Apply migrations before using bot features")
+
+    async def _github_event_poll_loop(self) -> None:
+        global _last_event_poll
+        log.info("github.poll_loop.started")
+
+        while not self.is_closed():
+            await asyncio.sleep(5)
+            try:
+                cutoff = _last_event_poll
+
+                def _fetch():
+                    return (
+                        database.get_db()
+                        .table("bot_github_events")
+                        .select("*")
+                        .gt("received_at", cutoff)
+                        .order("received_at", desc=False)
+                        .execute()
+                    )
+
+                result = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+
+                if result.data:
+                    _last_event_poll = result.data[-1]["received_at"]
+                    await self._dispatch_github_events(result.data)
+
+            except Exception as e:
+                log.error("github.poll_loop.error", error=str(e))
+
+    async def _dispatch_github_events(self, events: list[dict]) -> None:
+        from app.services.github_service import GitHubService
+        from app.services.member_service import MemberService
+        from app.services.steak_service import StreakService
+        from app.services.xp_service import XPService
+
+        db = database.get_db()
+        members = MemberService(db)
+        xp = XPService(db)
+        streak = StreakService(db, members)
+        svc = GitHubService(db=db, members=members, xp=xp, streak=streak, bot=self)
+
+        for event in events:
+            await svc.dispatch(event)
+
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         log.info("guild.joined", guild=guild.name, guild_id=guild.id)
