@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from discord.ext import commands
 
 log = structlog.get_logger()
@@ -10,6 +11,7 @@ log = structlog.get_logger()
 def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
     _register_standup_jobs(scheduler, bot)
     _register_xp_jobs(scheduler, bot)
+    _register_stuck_jobs(scheduler, bot)
 
 
 def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
@@ -79,3 +81,18 @@ def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
         id="streak_risk_dm",
         replace_existing=True
     )
+
+
+def _register_stuck_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+    cog = bot.cogs.get("StuckCog")
+    if cog is None:
+        log.warning("jobs.stuck_cog_missing", hint="StuckCog not loaded — stuck jobs skipped")
+        return
+
+    scheduler.add_job(
+        cog._stuck_check_job,
+        trigger=IntervalTrigger(minutes=5),
+        id="stuck_check",
+        replace_existing=True,
+    )
+    log.info("jobs.stuck_registered")
