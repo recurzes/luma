@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from app.services.xp_service import XPService
 
 from app.services.ticket_service import TicketService
+from app.services.badge_service import BadgeService
+from app.utils.badge_broadcast import get_current_streak, post_badges_to_shoutouts
 
 log = structlog.get_logger()
 
@@ -96,6 +98,12 @@ class GitHubService:
             for _ in commits:
                 await self._xp.award(str(member.id), "commit", metadata={"branch": branch})
             await self._streak.record_activity(str(member.id), "commit")
+
+            streak_n = await get_current_streak(self._db, str(member.id))
+            push_badges = await BadgeService(self._db, self._xp).check_and_award(
+                str(member.id), "streak_check", {"current_streak": streak_n}
+            )
+            await post_badges_to_shoutouts(self._bot, member, push_badges)
 
         embed = build_commit_embed(branch=branch, commits=commits, author_member=member)
         await self._post_to_channel("github_feed", embed)
