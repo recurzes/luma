@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     CHANNEL_RESOURCES: int = Field(..., description="#resources — /share drops")
     CHANNEL_RETRO: int = Field(..., description="#retro — sprint retrospective prompts")
     CHANNEL_RANKINGS: int = Field(..., description="#rankings — weekly XP leaderboard")
+    CHANNEL_GENERAL: int = Field(..., description="#general — mood check-in aggregate posts")
 
     DEV_TIPS: list[str] = Field(default_factory=_default_dev_tips, description="Daily dev tips rotation")
 
