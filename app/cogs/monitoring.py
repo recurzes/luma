@@ -45,6 +45,54 @@ class MonitoringCog(commands.Cog):
         self.bot = bot
         self._db = database.get_db()
 
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        if self.bot.user and payload.user_id == self.bot.user.id:
+            return
+        expected_user = _mood_prompt_by_msg.get(payload.message_id)
+        if expected_user is None:
+            return
+        if payload.user_id != expected_user:
+            return
+        if _mood_state.get(expected_user) != "pending":
+            return
+        score = _mood_score_from_emoji(payload.emoji)
+        if score is None:
+            return
+        _mood_state[expected_user] = score
+        del _mood_prompt_by_msg[payload.message_id]
+
+        try:
+            ch = await self.bot.fetch_channel(payload.channel_id)
+        except (discord.NotFound, discord.Forbidden, OSError):
+            return
+        if isinstance(ch, discord.DMChannel):
+            await ch.send("Thanks! Your mood has been recorded anonymously")
+        log.info("mood.received", user_id=expected_user, score=score, via="reaction")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if message.author.bot:
+            return
+        if not isinstance(message.channel, discord.DMChannel):
+            return
+
+        user_id = message.author.id
+        if user_id not in _mood_state or _mood_state[user_id] != "pending":
+            return
+
+        content = message.content.strip()
+        if content in {"1", "2", "3", "4", "5"}:
+            _mood_state[user_id] = int(content)
+            for mid, uid in list(_mood_prompt_by_msg.items()):
+                if uid == user_id:
+                    del _mood_prompt_by_msg[mid]
+                    break
+            await message.channel.send("Thanks! Your mood has been recorded anonymously")
+            log.info("mood.received", user_id=user_id, score=content, via="message")
+        else:
+            await message.channel.send("Please react with 1️⃣–5️⃣ on the prompt, or reply with a number 1–5")
+
 
     # Scheduled Jobs
     async def _stale_ticket_check(self) -> None:
