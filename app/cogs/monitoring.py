@@ -113,7 +113,7 @@ class MonitoringCog(commands.Cog):
         if not stale.data:
             return
 
-        task_feed = self.bot.get_channel(settings.CHANNEL_TASK_FEED)
+        task_feed = self.bot.get_text_channel("task_feed")
         if not isinstance(task_feed, discord.TextChannel):
             return
 
@@ -187,7 +187,7 @@ class MonitoringCog(commands.Cog):
         if not rows:
             return
 
-        code_review = self.bot.get_channel(settings.CHANNEL_CODE_REVIEW)
+        code_review = self.bot.get_text_channel("code_review")
         if not isinstance(code_review, discord.TextChannel):
             return
 
@@ -222,7 +222,7 @@ class MonitoringCog(commands.Cog):
             log.info("pr_stale.pinged", pr_number=pr_num)
 
     async def _tip_of_the_day(self) -> None:
-        tip_channel = self.bot.get_channel(settings.CHANNEL_TIP_OF_THE_DAY)
+        tip_channel = self.bot.get_text_channel("tip_of_the_day")
         if not isinstance(tip_channel, discord.TextChannel):
             return
 
@@ -274,7 +274,7 @@ class MonitoringCog(commands.Cog):
             for k, v in sorted(distribution.items())
         )
 
-        general = self.bot.get_channel(settings.CHANNEL_GENERAL)
+        general = self.bot.get_text_channel("general")
         if not isinstance(general, discord.TextChannel):
             return
 
@@ -290,3 +290,4 @@ class MonitoringCog(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(MonitoringCog(bot))
+
