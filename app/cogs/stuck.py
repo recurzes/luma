@@ -37,7 +37,7 @@ class StuckCog(commands.Cog):
         except RuntimeError:
             return
 
-        help_channel = interaction.guild.get_channel(settings.CHANNEL_HELP)
+        help_channel = self.bot.get_text_channel("help", interaction.guild)
         if not isinstance(help_channel, discord.TextChannel):
             await interaction.followup.send("Help channel not configured", ephemeral=True)
             return
