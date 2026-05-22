@@ -44,27 +44,31 @@ Option B: Create two services manually
 
 Required env vars (from `app/config.py` and `.env.example`):
 - `DISCORD_TOKEN`
-- `DISCORD_GUILD_ID`
+- `DISCORD_GUILD_ID` (optional; leave unset for multi-server)
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `GITHUB_WEBHOOK_SECRET`
-- `CHANNEL_TASK_FEED`
-- `CHANNEL_STANDUP_LOG`
-- `CHANNEL_GITHUB_FEED`
-- `CHANNEL_CODE_REVIEW`
-- `CHANNEL_PHASE_TRACKER`
-- `CHANNEL_HELP`
-- `CHANNEL_SHOUTOUTS`
-- `CHANNEL_ANNOUNCEMENTS`
-- `CHANNEL_TIP_OF_THE_DAY`
-- `CHANNEL_RESOURCES`
-- `CHANNEL_RETRO`
-- `CHANNEL_RANKINGS`
-- `CHANNEL_GENERAL`
+- `CHANNEL_TASK_FEED` (optional; auto-resolved by channel name)
+- `CHANNEL_STANDUP_LOG` (optional; auto-resolved by channel name)
+- `CHANNEL_GITHUB_FEED` (optional; auto-resolved by channel name)
+- `CHANNEL_CODE_REVIEW` (optional; auto-resolved by channel name)
+- `CHANNEL_PHASE_TRACKER` (optional; auto-resolved by channel name)
+- `CHANNEL_HELP` (optional; auto-resolved by channel name)
+- `CHANNEL_SHOUTOUTS` (optional; auto-resolved by channel name)
+- `CHANNEL_ANNOUNCEMENTS` (optional; auto-resolved by channel name)
+- `CHANNEL_TIP_OF_THE_DAY` (optional; auto-resolved by channel name)
+- `CHANNEL_RESOURCES` (optional; auto-resolved by channel name)
+- `CHANNEL_RETRO` (optional; auto-resolved by channel name)
+- `CHANNEL_RANKINGS` (optional; auto-resolved by channel name)
+- `CHANNEL_GENERAL` (optional; auto-resolved by channel name)
 - `DEBUG` (optional)
 - `DISCORD_ROLE_LEAD` (optional, default: Lead)
 - `DISCORD_ROLE_PROFESSOR` (optional, default: Professor)
 - `GITHUB_TOKEN` (optional)
+
+Multi-server mode
+- Leave `DISCORD_GUILD_ID` unset to enable global command sync
+- The bot will create the `LumaBot` category and required channels in every server it joins
 
 Webhook setup
 - Expose only the webhooks service publicly
