@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  lumabot:
+    build: .
+    restart: unless-stopped
+    command: python -m app.bot
+    env_file: .env
+
+  lumabot-webhooks:
+    build: .
+    restart: unless-stopped
+    command: uvicorn app.webhooks.main:app --host 0.0.0.0 --port 8100
+    ports:
+      - "8100:8100"
+    env_file: .env
+
