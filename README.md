@@ -60,6 +60,7 @@ Required env vars (from `app/config.py` and `.env.example`):
 - `CHANNEL_RESOURCES`
 - `CHANNEL_RETRO`
 - `CHANNEL_RANKINGS`
+- `CHANNEL_GENERAL`
 - `DEBUG` (optional)
 - `DISCORD_ROLE_LEAD` (optional, default: Lead)
 - `DISCORD_ROLE_PROFESSOR` (optional, default: Professor)
