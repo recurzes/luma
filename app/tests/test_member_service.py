@@ -1,3 +1,4 @@
+"""Tests for services/member_service.py — Supabase client is mocked."""
 from __future__ import annotations
 
 import os
@@ -18,6 +19,7 @@ os.environ.setdefault("CHANNEL_TIP_OF_THE_DAY", "9")
 os.environ.setdefault("CHANNEL_RESOURCES", "10")
 os.environ.setdefault("CHANNEL_RETRO", "11")
 os.environ.setdefault("CHANNEL_RANKINGS", "12")
+os.environ.setdefault("CHANNEL_GENERAL", "13")
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -28,6 +30,7 @@ import pytest_asyncio
 
 from app.services.member_service import MemberService
 
+# ─── fixtures ─────────────────────────────────────────────────────────────────
 
 MEMBER_ID = uuid4()
 NOW = datetime.now(tz=timezone.utc)
@@ -44,6 +47,7 @@ MEMBER_ROW = {
 
 
 def _mock_db(rows: list[dict] | None = None):
+    """Build a minimal Supabase client mock."""
     result = MagicMock()
     result.data = rows or []
 
@@ -60,9 +64,12 @@ def _mock_db(rows: list[dict] | None = None):
     return db, chain, result
 
 
+# ─── tests ────────────────────────────────────────────────────────────────────
+
 @pytest.mark.asyncio
 async def test_register_success():
     db, chain, result = _mock_db()
+    # first call (exists check) returns empty, second call (insert) returns row
     result.data = []
     results = [MagicMock(data=[]), MagicMock(data=[MEMBER_ROW]), MagicMock(data=[])]
     call_count = 0
