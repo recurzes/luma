@@ -141,7 +141,7 @@ class StandupCog(commands.Cog):
         guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
         if guild is None:
             return
-        channel = guild.get_channel(settings.CHANNEL_STANDUP_LOG)
+        channel = self.bot.get_text_channel("standup_log", guild)
         if isinstance(channel, discord.TextChannel):
             await channel.send(embed=embed)
             await svc.mark_posted(str(session.id))
@@ -160,7 +160,7 @@ class StandupCog(commands.Cog):
         guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
         if guild is None:
             return
-        channel = guild.get_channel(settings.CHANNEL_STANDUP_LOG)
+        channel = self.bot.get_text_channel("standup_log", guild)
         if not isinstance(channel, discord.TextChannel):
             return
 
