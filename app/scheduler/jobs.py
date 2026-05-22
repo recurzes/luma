@@ -58,7 +58,7 @@ def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot)
         return
 
     scheduler.add_job(
-        cog._leader_post_job,
+        cog._leaderboard_post_job,
         "cron",
         day_of_week="fri",
         hour=17,
