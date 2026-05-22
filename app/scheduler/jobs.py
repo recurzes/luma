@@ -12,6 +12,7 @@ def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
     _register_standup_jobs(scheduler, bot)
     _register_xp_jobs(scheduler, bot)
     _register_stuck_jobs(scheduler, bot)
+    _register_monitoring_jobs(scheduler, bot)
 
 
 def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
@@ -96,3 +97,58 @@ def _register_stuck_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None
         replace_existing=True,
     )
     log.info("jobs.stuck_registered")
+
+
+def _register_monitoring_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+    cog = bot.cogs.get("MonitoringCog")
+    if cog is None:
+        log.warning("jobs.monitoring_cog_missing", hint="MonitoringCog not loaded — monitoring skipped")
+        return
+
+    scheduler.add_job(
+        cog._stale_ticket_check,
+        "cron",
+        hour=9,
+        minute=0,
+        id="stale_ticket_check",
+        replace_existing=True
+    )
+
+    scheduler.add_job(
+        cog._pr_stale_check,
+        "cron",
+        hour=10,
+        minute=0,
+        id="pr_stale_check",
+        replace_existing=True
+    )
+
+    scheduler.add_job(
+        cog._tip_of_the_day,
+        hour=9,
+        minute=30,
+        id="tip_of_the_day",
+        replace_existing=True
+    )
+
+    scheduler.add_job(
+        cog._mood_checkin_dm,
+        "cron",
+        day_of_week="mon",
+        hour=9,
+        minute=0,
+        id="mood_checkin_dm",
+        replace_existing=True
+    )
+
+    scheduler.add_job(
+        cog._mood_aggregate_post,
+        "cron",
+        day_of_week="mon",
+        hour=15,
+        minute=0,
+        id="mood_aggregate_post",
+        replace_existing=True
+    )
+
+    log.info("jobs.monitoring_registered")

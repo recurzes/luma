@@ -9,8 +9,12 @@ from rich import _timer
 from supabase import Client
 from watchfiles import awatch
 
+from app.models.badge import Badge
 from app.models.ticket import Ticket, TicketCreate, TierViolationError
+from app.services.badge_service import BadgeService
 from app.services.member_service import MemberService
+from app.services.xp_service import XPService
+from app.utils.badge_broadcast import get_current_streak
 
 log = structlog.get_logger()
 
@@ -25,6 +29,7 @@ class CloseResult:
     xp_awarded: int = 0
     new_level: int = 1
     level_up: bool = False
+    badges: list[Badge] = field(default_factory=list)
 
 
 @dataclass
@@ -287,17 +292,31 @@ class TicketService:
         closed = self._parse(result.data[0])
 
         closer = await self._members.get_by_discord_id(closed_by_discord_id)
-        target_member = closer
-        if target_member:
-            await self._increment_tickets_closed(str(target_member.id))
+        if closer:
+            await self._increment_tickets_closed(str(closer.id))
+
+        badges: list[Badge] = []
+        xp_svc = self._xp
+        badge_xp = xp_svc or XPService(self._db)
+        badge_svc = BadgeService(self._db, badge_xp)
 
         xp_result = None
-        if self._xp and target_member:
+        if self._xp and closer:
             action = f"close_t{closed.tier.lower()}"
-            xp_result = await self._xp.award(str(target_member.id), action, metadata={"ticket_id": str(closed.id)})
+            xp_result = await self._xp.award(str(closer.id), action, metadata={"ticket_id": str(closed.id)})
+            clutch_ctx = closed.model_dump(mode="json")
+            badges.extend(
+                await badge_svc.check_and_award(str(closer.id), action, {"ticket": clutch_ctx})
+            )
 
-        if self._streak and target_member:
-            await self._streak.record_activity(str(target_member.id), "ticket_closed")
+        if self._streak and closer:
+            await self._streak.record_activity(str(closer.id), "ticket_closed")
+            streak_n = await get_current_streak(self._db, str(closer.id))
+            badges.extend(
+                await badge_svc.check_and_award(
+                    str(closer.id), "streak_check", {"current_streak": streak_n}
+                )
+            )
 
         log.info("ticket.closed", ticket_id=str(closed.id), closed_by=closed_by_discord_id)
 
@@ -306,7 +325,8 @@ class TicketService:
                 ticket=closed,
                 xp_awarded=xp_result.xp_awarded,
                 new_level=xp_result.new_level,
-                level_up=xp_result.level_up
+                level_up=xp_result.level_up,
+                badges=badges
             )
         return CloseResult(ticket=closed)
 

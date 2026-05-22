@@ -1,0 +1,17 @@
+INSERT INTO bot_badge_definitions (key, name, description, emoji, trigger) VALUES
+  ('block_builder', 'Block Builder', 'Shipped a complete block type end-to-end', '🏗️', 'PR merged for a block-type ticket'),
+  ('tier_guard', 'Tier Guard', 'First to catch a vibe-coded PR in review', '🔍', 'Reviewer flags confirmed by Lead'),
+  ('rubber_duck', 'Rubber Duck', 'Resolved 5 /stuck threads as helper', '🦆', '5 helped_stuck XP events'),
+  ('contract_keeper', 'Contract Keeper', 'Contributed to API contract doc', '📐', 'PR merged touching LMA_API_Contract.md'),
+  ('no_any_club', 'No any Club', '10 PRs merged with zero TS any flags', '🚫', '10 PRs with no any warnings'),
+  ('ship_it', 'Ship It', 'PR merged same day it was opened', '🚀', 'PR open_at and merged_at same calendar day'),
+  ('stress_tester', 'Stress Tester', 'Submitted a Phase 4 bug bash issue', '🧪', 'GitHub issue with bug-bash label'),
+  ('streak_starter', 'Streak Starter', 'First 3-day streak', '🔥', '3-day streak milestone'),
+  ('on_fire', 'On Fire', '7-day streak', '🔥🔥', '7-day streak milestone'),
+  ('unstoppable', 'Unstoppable', '14-day streak', '🔥🔥🔥', '14-day streak milestone'),
+  ('legendary', 'Legendary', '30-day streak', '👑', '30-day streak milestone'),
+  ('standup_champion', 'Standup Champion', '7 consecutive standup responses', '☀️', '7-day standup streak'),
+  ('helpful_human', 'Helpful Human', 'Used /shoutout 3 times', '🤝', '3 shoutout_given XP events'),
+  ('knowledge_dealer', 'Knowledge Dealer', '5 resources shared with 3+ upvotes', '📚', '5 knowledge_drop events with votes'),
+  ('clutch_coder', 'Clutch Coder', 'Closed a ticket within 1 hour of deadline', '⚡', 'ticket closed_at within 1h of deadline'),
+  ('retro_voice', 'Retro Voice', 'Responded to 3 sprint retrospectives', '🪞', '3 retro responses');

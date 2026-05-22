@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import discord
 import httpx
 import structlog
-from aiohttp import payload
+from datetime import datetime, timezone
 
 from app.models.member import Member
 
@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from app.services.xp_service import XPService
 
 from app.services.ticket_service import TicketService
+from app.services.badge_service import BadgeService
+from app.utils.badge_broadcast import get_current_streak, post_badges_to_shoutouts
 
 log = structlog.get_logger()
 
@@ -48,6 +50,42 @@ class GitHubService:
 
     async def _run(self, fn):
         return asyncio.get_event_loop().run_in_executor(None, fn)
+
+    async def _upsert_pr_reviewer_row(
+            self,
+            pr_number: int,
+            reviewer_member_id: str,
+            pr_url: str,
+            pr_created_at: str
+    ) -> None:
+        row = {
+            "pr_number": pr_number,
+            "reviewer_member_id": reviewer_member_id,
+            "pr_url": pr_url,
+            "pr_created_at": pr_created_at,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        def _upsert():
+            return (
+                self._db.table("bot_pr_reviewers")
+                .upsert(row, on_conflict="pr_number")
+                .execute()
+            )
+
+        await self._run(_upsert)
+        log.info("github.pr_reviewer_map.upserted", pr_number=pr_number)
+
+    async def _delete_pr_reviewer_ro(self, pr_number: int) -> None:
+        def _delete():
+            return (
+                self._db.table("bot_pr_reviewers")
+                .delete()
+                .eq("pr_number", pr_number)
+                .execute()
+            )
+
+        await self._run(_delete)
 
     async def get_member_by_github(self, github_username: str) -> Member | None:
         def _fetch():
@@ -97,6 +135,12 @@ class GitHubService:
                 await self._xp.award(str(member.id), "commit", metadata={"branch": branch})
             await self._streak.record_activity(str(member.id), "commit")
 
+            streak_n = await get_current_streak(self._db, str(member.id))
+            push_badges = await BadgeService(self._db, self._xp).check_and_award(
+                str(member.id), "streak_check", {"current_streak": streak_n}
+            )
+            await post_badges_to_shoutouts(self._bot, member, push_badges)
+
         embed = build_commit_embed(branch=branch, commits=commits, author_member=member)
         await self._post_to_channel("github_feed", embed)
         log.info("github.push.processed", pusher=pusher, commits=len(commits))
@@ -116,6 +160,9 @@ class GitHubService:
 
         author_member = await self.get_member_by_github(author_login)
 
+        if action == "closed" and pr_number is not None:
+            await self._delete_pr_reviewer_ro(pr_number)
+
         if action == "opened":
             reviewer_member = await self.assign_reviewer(author_member, pr_title)
 
@@ -124,6 +171,15 @@ class GitHubService:
                 author_member=author_member, reviewer_member=reviewer_member
             )
             await self._post_to_channel("github_feed", embed)
+
+            if reviewer_member is not None and pr_number is not None:
+                created = pr.get("created_at") or datetime.now(timezone.utc).isoformat()
+                await self._upsert_pr_reviewer_row(
+                    pr_number=int(pr_number),
+                    reviewer_member_id=str(reviewer_member.id),
+                    pr_url=pr_url,
+                    pr_created_at=created
+                )
 
             if author_member and author_member.role == "beginner" and settings.GITHUB_TOKEN:
                 await self._check_any_usage(repo_full, pr_number, author_member)

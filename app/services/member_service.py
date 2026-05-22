@@ -88,6 +88,21 @@ class MemberService:
             return None
         return self._parse(result.data[0])
 
+    async def get_by_id(self, member_id: str) -> Member | None:
+        def _fetch():
+            return (
+                self._db.table("bot_members")
+                .select("*")
+                .eq("id", member_id)
+                .limit(1)
+                .execute()
+            )
+
+        result = await self._run(_fetch)
+        if not result.data:
+            return None
+        return self._parse(result.data[0])
+
     async def get_all_active(self) -> list[Member]:
         def _fetch():
             return self._db.table("bot_members").select("*").execute()

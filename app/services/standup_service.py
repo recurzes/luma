@@ -6,11 +6,14 @@ from datetime import date, datetime, timezone
 import structlog
 from supabase import Client
 
+from app.models.badge import Badge
 from app.models.member import Member
 from app.models.standup import StandupResponse, StandupSession
 from app.services.member_service import MemberService
 from app.services.steak_service import StreakService
 from app.services.xp_service import XPService
+from app.services.badge_service import BadgeService
+from app.utils.badge_broadcast import get_current_streak
 
 log = structlog.get_logger()
 
@@ -72,7 +75,7 @@ class StandupService:
             yesterday: str,
             today: str,
             blockers: str
-    ) -> StandupResponse:
+    ) -> tuple[StandupResponse, list[Badge]]:
         def _upsert():
             return (
                 self._db.table("bot_standup_responses")
@@ -96,10 +99,18 @@ class StandupService:
         await self._xp.award(member_id, "standup")
 
         streak = StreakService(self._db, self._members)
+        badge_svc = BadgeService(self._db, self._xp)
+        badges = await badge_svc.check_and_award(member_id, "standup")
+        streak_n = await get_current_streak(self._db, member_id)
+        badges.extend(
+            await badge_svc.check_and_award(
+                member_id, "streak_check", {"current_streak": streak_n}
+            )
+        )
         await streak.record_activity(member_id, "standup")
 
         log.info("standup.response_saved", member_id=member_id, session_id=session_id)
-        return response
+        return response, badges
 
     async def get_responses(self, session_id: str) -> list[StandupResponse]:
         def _fetch():

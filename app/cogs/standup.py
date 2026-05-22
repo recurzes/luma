@@ -13,6 +13,7 @@ from app.embeds.standup_embed import build_standup_summary
 from app.services.member_service import MemberService
 from app.services.standup_service import StandupService
 from app.services.xp_service import XPService
+from app.utils.badge_broadcast import post_badges_to_shoutouts
 
 if TYPE_CHECKING:
     pass
@@ -67,8 +68,9 @@ class StandupCog(commands.Cog):
             state["blockers"] = content
 
             svc = self._svc()
+
             try:
-                await svc.save_response(
+                _, badges = await svc.save_response(
                     session_id=state["session_id"],
                     member_id=state["member_id"],
                     yesterday=state["yesterday"],
@@ -78,6 +80,10 @@ class StandupCog(commands.Cog):
                 await message.channel.send(
                     "Got it — your standup has been recorded. ✅"
                 )
+                if badges:
+                    m = await MemberService(database.get_db()).get_by_id(state["member_id"])
+                    if m:
+                        await post_badges_to_shoutouts(self.bot, m, badges)
                 log.info("standup.response_collected", discord_id=user_id)
 
             except Exception as e:

@@ -14,6 +14,7 @@ from app.models.ticket import TicketCreate, TierViolationError
 from app.services.member_service import MemberService
 from app.services.ticket_service import TicketService
 from app.utils.guards import require_member
+from app.utils.badge_broadcast import post_badges_to_shoutouts
 
 log = structlog.get_logger()
 
@@ -291,6 +292,11 @@ class TicketCog(commands.Cog):
                     f"🎉 {interaction.user.mention} just levelled up to **Level {close_result.new_level}** "
                     f"by closing ticket `{str(closed.id)[-8:]}`! +{close_result.xp_awarded} XP"
                 )
+
+        if close_result.badges:
+            closer_member = await MemberService(database.get_db()).get_by_discord_id(str(interaction.user.id))
+            if closer_member:
+                await post_badges_to_shoutouts(self.bot, closer_member, close_result.badges)
 
         await interaction.followup.send(
             f"Ticket `{str(closed.id)[-8:]}` closed. +{close_result.xp_awarded} XP awarded",
