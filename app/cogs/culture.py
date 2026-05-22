@@ -56,7 +56,7 @@ class CultureCog(commands.Cog):
         receiver = await member_svc.get_by_discord_id(str(member.id))
         xp = self._xp()
 
-        await xp.award(str(sender.id), "shoutout_giver")
+        await xp.award(str(sender.id), "shoutout_given")
         if receiver:
             await xp.award(str(sender.id), "shoutout_recv")
 
