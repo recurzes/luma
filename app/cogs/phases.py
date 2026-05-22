@@ -97,7 +97,7 @@ class PhaseCog(commands.GroupCog, name="phase"):
             ephemeral=True
         )
 
-        tracker_channel = interaction.guild.get_channel(settings.CHANNEL_PHASE_TRACKER)
+        tracker_channel = self.bot.get_text_channel("phase-tracker", interaction.guild)
         if isinstance(tracker_channel, discord.TextChannel):
             criteria = await svc.get_criteria(str(phase.id))
             embed = build_phase_embed(phase, criteria)
@@ -131,7 +131,7 @@ class PhaseCog(commands.GroupCog, name="phase"):
         summary = await svc.phase_summary(phase.key)
         embed = build_completion_ceremony(phase, summary)
 
-        announcements = interaction.guild.get_channel(settings.CHANNEL_ANNOUNCEMENTS)
+        announcements = self.bot.get_text_channel("announcements", interaction.guild)
         if isinstance(announcements, discord.TextChannel):
             await announcements.send(embed=embed)
         else:
