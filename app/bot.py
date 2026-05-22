@@ -53,8 +53,41 @@ class LumaBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.scheduler = AsyncIOScheduler()
 
-        self.guild: discord.Guild | None
-        self.channels = dict[str, int] = {}
+        self.guild: discord.Guild | None = None
+        self.channels: dict[str, int] = {}
+
+    def get_text_channel(
+            self,
+            key: str,
+            guild: discord.Guild | None = None
+    ) -> discord.TextChannel | None:
+        g = guild or self.guild
+        if g is None:
+            return None
+
+        ch_id = self.channels.get(key)
+        if ch_id:
+            ch = g.get_channel(ch_id)
+            if isinstance(ch, discord.TextChannel):
+                return ch
+
+        attr = f"CHANNEL_{key.upper()}"
+        fallback_id = getattr(settings, attr, None)
+        if fallback_id:
+            ch = g.get_channel(int(fallback_id))
+            if isinstance(ch, discord.TextChannel):
+                self.channels[key] = ch.id
+                return ch
+
+        manifest = CHANNEL_MANIFEST.get(key)
+        if manifest:
+            name, topic = manifest
+            by_name = discord.utils.get(g.text_channels, name=name)
+            if isinstance(by_name, discord.TextChannel):
+                self.channels[key] = by_name.id
+                return by_name
+
+        return None
 
     async def setup_hook(self) -> None:
         await self._load_cogs()
@@ -77,6 +110,10 @@ class LumaBot(commands.Bot):
 
     async def on_ready(self) -> None:
         assert self.user is not None
+        if self.guild is None:
+            self.guild = self.get_guild(settings.DISCORD_GUILD_ID)
+            if self.guild is not None:
+                await self._ensure_channels(self.guild)
         db_ok = await database.ping()
         log.info(
             "bot.ready",
