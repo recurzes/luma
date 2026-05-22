@@ -65,7 +65,7 @@ class ReviewCog(commands.GroupCog, name="review"):
             await interaction.followup.send("Failed to update reviewer", ephemeral=True)
             return
 
-        code_review = interaction.guild.get_channel(settings.CHANNEL_CODE_REVIEW)
+        code_review = self.bot.get_text_channel("code-review", interaction.guild)
         if isinstance(code_review, discord.TextChannel):
             await code_review.send(
                 f"📋 PR `{pr_number}` reviewer manually set to {dev.mention} "
