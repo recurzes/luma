@@ -8,7 +8,6 @@ import structlog
 from discord.ext import commands
 
 from app import database
-from app.config import settings
 from app.embeds.standup_embed import build_standup_summary
 from app.services.member_service import MemberService
 from app.services.standup_service import StandupService
@@ -138,15 +137,17 @@ class StandupCog(commands.Cog):
 
         embed = build_standup_summary(session, responses, non_resp, member_map)
 
-        guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
-        if guild is None:
-            return
-        channel = self.bot.get_text_channel("standup_log", guild)
-        if isinstance(channel, discord.TextChannel):
-            await channel.send(embed=embed)
+        posted = 0
+        for guild in self.bot.guilds:
+            channel = self.bot.get_text_channel("standup_log", guild)
+            if isinstance(channel, discord.TextChannel):
+                await channel.send(embed=embed)
+                posted += 1
+
+        if posted:
             await svc.mark_posted(str(session.id))
 
-        log.info("job.standup_compile.done", responses=len(responses))
+        log.info("job.standup_compile.done", responses=len(responses), posted=posted)
 
     async def _standup_nag_job(self) -> None:
         log.info("job.standup_nag.start")
@@ -157,21 +158,22 @@ class StandupCog(commands.Cog):
         if not non_resp:
             return
 
-        guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
-        if guild is None:
-            return
-        channel = self.bot.get_text_channel("standup_log", guild)
-        if not isinstance(channel, discord.TextChannel):
-            return
-
         mentions = " ".join(
             f"<@{m.discord_id}>" for m in non_resp
         )
-        await channel.send(
-            f"⏰ Standup reminder! Still waiting on: {mentions}\n"
-            "Reply to your standup DM or the window closes at 9:30 AM."
-        )
-        log.info("job.standup_nag.done", pinged=len(non_resp))
+
+        pinged = 0
+        for guild in self.bot.guilds:
+            channel = self.bot.get_text_channel("standup_log", guild)
+            if not isinstance(channel, discord.TextChannel):
+                continue
+            await channel.send(
+                f"⏰ Standup reminder! Still waiting on: {mentions}\n"
+                "Reply to your standup DM or the window closes at 9:30 AM."
+            )
+            pinged += 1
+
+        log.info("job.standup_nag.done", pinged=pinged)
 
 
 async def setup(bot: commands.Bot) -> None:

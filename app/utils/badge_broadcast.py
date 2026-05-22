@@ -6,7 +6,6 @@ import discord
 from supabase import Client
 
 from app import channels
-from app.config import settings
 from app.embeds.badge_embed import build_badge_award_embed
 from app.models.badge import Badge
 from app.models.member import Member
@@ -31,12 +30,15 @@ async def get_current_streak(db: Client, member_id: str) -> int:
 async def post_badges_to_shoutouts(bot: discord.Client | None, member: Member, badges: list[Badge]) -> None:
     if bot is None or not badges:
         return
-    guild = bot.get_guild(settings.DISCORD_GUILD_ID)
-    if guild is None:
-        return
-    channel = guild.get_channel(settings.CHANNEL_SHOUTOUTS)
-    if not isinstance(channel, discord.TextChannel):
-        return
-    for badge in badges:
-        embed = build_badge_award_embed(member, badge)
-        await channel.send(embed=embed)
+    shoutouts_name = channels.CHANNEL_MANIFEST.get("shoutouts", ("shoutouts", ""))[0]
+    for guild in bot.guilds:
+        channel = None
+        if hasattr(bot, "get_text_channel"):
+            channel = bot.get_text_channel("shoutouts", guild)
+        if channel is None:
+            channel = discord.utils.get(guild.text_channels, name=shoutouts_name)
+        if not isinstance(channel, discord.TextChannel):
+            continue
+        for badge in badges:
+            embed = build_badge_award_embed(member, badge)
+            await channel.send(embed=embed)

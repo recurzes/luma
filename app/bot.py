@@ -39,7 +39,7 @@ class LumaBot(commands.Bot):
         self.scheduler = AsyncIOScheduler()
 
         self.guild: discord.Guild | None = None
-        self.channels: dict[str, int] = {}
+        self.channels: dict[tuple[int, str], int] = {}
 
     def get_text_channel(
             self,
@@ -48,9 +48,13 @@ class LumaBot(commands.Bot):
     ) -> discord.TextChannel | None:
         g = guild or self.guild
         if g is None:
-            return None
+            if len(self.guilds) == 1:
+                g = self.guilds[0]
+            else:
+                return None
 
-        ch_id = self.channels.get(key)
+        cache_key = (g.id, key)
+        ch_id = self.channels.get(cache_key)
         if ch_id:
             ch = g.get_channel(ch_id)
             if isinstance(ch, discord.TextChannel):
@@ -61,7 +65,7 @@ class LumaBot(commands.Bot):
         if fallback_id:
             ch = g.get_channel(int(fallback_id))
             if isinstance(ch, discord.TextChannel):
-                self.channels[key] = ch.id
+                self.channels[cache_key] = ch.id
                 return ch
 
         manifest = CHANNEL_MANIFEST.get(key)
@@ -69,7 +73,7 @@ class LumaBot(commands.Bot):
             name, topic = manifest
             by_name = discord.utils.get(g.text_channels, name=name)
             if isinstance(by_name, discord.TextChannel):
-                self.channels[key] = by_name.id
+                self.channels[cache_key] = by_name.id
                 return by_name
 
         return None
@@ -88,22 +92,31 @@ class LumaBot(commands.Bot):
             await self.load_extension(module_name)
             log.info("cog.loaded", cog=module_name)
 
-        guild = discord.Object(id=settings.DISCORD_GUILD_ID)
-        self.tree.copy_global_to(guild=guild)
-        synced = await self.tree.sync(guild=guild)
-        log.info("commands.synced", count=len(synced), guild_id=settings.DISCORD_GUILD_ID)
+        if settings.DISCORD_GUILD_ID:
+            guild = discord.Object(id=settings.DISCORD_GUILD_ID)
+            self.tree.copy_global_to(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            log.info("commands.synced", count=len(synced), guild_id=settings.DISCORD_GUILD_ID)
+        else:
+            synced = await self.tree.sync()
+            log.info("commands.synced", count=len(synced), scope="global")
 
     async def on_ready(self) -> None:
         assert self.user is not None
-        if self.guild is None:
-            self.guild = self.get_guild(settings.DISCORD_GUILD_ID)
-            if self.guild is not None:
-                await self._ensure_channels(self.guild)
+        if settings.DISCORD_GUILD_ID:
+            if self.guild is None:
+                self.guild = self.get_guild(settings.DISCORD_GUILD_ID)
+                if self.guild is not None:
+                    await self._ensure_channels(self.guild)
+        else:
+            for guild in self.guilds:
+                await self._ensure_channels(guild)
         db_ok = await database.ping()
         log.info(
             "bot.ready",
             user=str(self.user),
             guild_id=settings.DISCORD_GUILD_ID,
+            guilds=len(self.guilds),
             supabase=db_ok
         )
         if not db_ok:
@@ -155,12 +168,18 @@ class LumaBot(commands.Bot):
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         log.info("guild.joined", guild=guild.name, guild_id=guild.id)
-        self.guild = guild
+        if settings.DISCORD_GUILD_ID is None:
+            try:
+                await self.tree.sync(guild=discord.Object(id=guild.id))
+            except discord.Forbidden:
+                log.warning("commands.sync_forbidden", guild_id=guild.id)
+        self.guild = guild if settings.DISCORD_GUILD_ID else None
         await self._ensure_channels(guild)
 
-        guild_obj = discord.Object(id=guild.id)
-        self.tree.copy_global_to(guild=guild_obj)
-        await self.tree.sync(guild=guild_obj)
+        if settings.DISCORD_GUILD_ID:
+            guild_obj = discord.Object(id=guild.id)
+            self.tree.copy_global_to(guild=guild_obj)
+            await self.tree.sync(guild=guild_obj)
 
     async def _ensure_channels(self, guild: discord.Guild) -> None:
         existing = {ch.name: ch for ch in guild.text_channels}
@@ -176,15 +195,16 @@ class LumaBot(commands.Bot):
 
         created_count = 0
         for key, (name, topic) in CHANNEL_MANIFEST.items():
+            cache_key = (guild.id, key)
             if name in existing:
-                self.channels[key] = existing[name].id
+                self.channels[cache_key] = existing[name].id
             else:
                 try:
                     kwargs: dict = {"topic": topic}
                     if category is not None:
                         kwargs["category"] = category
                     ch = await guild.create_text_channel(name, **kwargs)
-                    self.channels[key] = ch.id
+                    self.channels[cache_key] = ch.id
                     created_count += 1
                     log.info("channel.created", name=name, guild=guild.name)
                 except discord.Forbidden:

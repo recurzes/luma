@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # Discord
     DISCORD_TOKEN: str = Field(..., description="Bot token from Discord Developer Portal")
-    DISCORD_GUILD_ID: int = Field(..., description="Target guild (server) snowflake ID")
+    DISCORD_GUILD_ID: int | None = Field(default=None, description="Target guild (server) snowflake ID")
 
     # Supabase
     SUPABASE_URL: str = Field(..., description="Supabase project URL")
@@ -42,19 +42,19 @@ class Settings(BaseSettings):
     GITHUB_WEBHOOK_SECRET: str = Field(..., description="Secret used to verify GitHub webhook signatures")
 
     # Channel IDs
-    CHANNEL_TASK_FEED: int = Field(..., description="#task-feed — live ticket status updates")
-    CHANNEL_STANDUP_LOG: int = Field(..., description="#standup-log — compiled daily standups")
-    CHANNEL_GITHUB_FEED: int = Field(..., description="#github-feed — commits, PRs, CI results")
-    CHANNEL_CODE_REVIEW: int = Field(..., description="#code-review — PR assignments, tier warnings")
-    CHANNEL_PHASE_TRACKER: int = Field(..., description="#phase-tracker — phase progress")
-    CHANNEL_HELP: int = Field(..., description="#help — /stuck threads")
-    CHANNEL_SHOUTOUTS: int = Field(..., description="#shoutouts — kudos and milestone posts")
-    CHANNEL_ANNOUNCEMENTS: int = Field(..., description="#announements — phase completions")
-    CHANNEL_TIP_OF_THE_DAY: int = Field(..., description="#tip-of-the-day — daily dev tip")
-    CHANNEL_RESOURCES: int = Field(..., description="#resources — /share drops")
-    CHANNEL_RETRO: int = Field(..., description="#retro — sprint retrospective prompts")
-    CHANNEL_RANKINGS: int = Field(..., description="#rankings — weekly XP leaderboard")
-    CHANNEL_GENERAL: int = Field(..., description="#general — mood check-in aggregate posts")
+    CHANNEL_TASK_FEED: int | None = Field(default=None, description="#task-feed — live ticket status updates")
+    CHANNEL_STANDUP_LOG: int | None = Field(default=None, description="#standup-log — compiled daily standups")
+    CHANNEL_GITHUB_FEED: int | None = Field(default=None, description="#github-feed — commits, PRs, CI results")
+    CHANNEL_CODE_REVIEW: int | None = Field(default=None, description="#code-review — PR assignments, tier warnings")
+    CHANNEL_PHASE_TRACKER: int | None = Field(default=None, description="#phase-tracker — phase progress")
+    CHANNEL_HELP: int | None = Field(default=None, description="#help — /stuck threads")
+    CHANNEL_SHOUTOUTS: int | None = Field(default=None, description="#shoutouts — kudos and milestone posts")
+    CHANNEL_ANNOUNCEMENTS: int | None = Field(default=None, description="#announements — phase completions")
+    CHANNEL_TIP_OF_THE_DAY: int | None = Field(default=None, description="#tip-of-the-day — daily dev tip")
+    CHANNEL_RESOURCES: int | None = Field(default=None, description="#resources — /share drops")
+    CHANNEL_RETRO: int | None = Field(default=None, description="#retro — sprint retrospective prompts")
+    CHANNEL_RANKINGS: int | None = Field(default=None, description="#rankings — weekly XP leaderboard")
+    CHANNEL_GENERAL: int | None = Field(default=None, description="#general — mood check-in aggregate posts")
 
     DEV_TIPS: list[str] = Field(default_factory=_default_dev_tips, description="Daily dev tips rotation")
 

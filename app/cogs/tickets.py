@@ -8,7 +8,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from app import database
-from app.config import settings
 from app.embeds.ticket_embed import build_board_embed, build_ticket_embed
 from app.models.ticket import TicketCreate, TierViolationError
 from app.services.member_service import MemberService
@@ -108,7 +107,7 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
 
         embed = build_ticket_embed(ticket, assignee=None)
 
-        channel = self._cog.bot.get_text_channel("task_feed")
+        channel = self._cog.bot.get_text_channel("task_feed", interaction.guild)
         if channel and isinstance(channel, discord.TextChannel):
             feed_msg = await channel.send(embed=embed)
             await service.update_discord_msg_id(str(ticket.id), str(feed_msg.id))
@@ -185,7 +184,7 @@ class TicketCog(commands.Cog):
         embed = build_ticket_embed(result.ticket, assignee=assignee_record)
 
         if result.ticket.discord_msg_id:
-            channel = self.bot.get_text_channel("task_feed")
+            channel = self.bot.get_text_channel("task_feed", interaction.guild)
             if channel and isinstance(channel, discord.TextChannel):
                 try:
                     msg = await channel.fetch_message(int(result.ticket.discord_msg_id))
@@ -194,7 +193,7 @@ class TicketCog(commands.Cog):
                     await channel.send(embed=embed)
 
         if result.first_t2:
-            feed_channel = self.bot.get_text_channel("task_feed")
+            feed_channel = self.bot.get_text_channel("task_feed", interaction.guild)
             if feed_channel and isinstance(feed_channel, discord.TextChannel):
                 await feed_channel.send(
                     f"📌 **Pairing required:** {member.mention} is taking their first T2 ticket "
@@ -242,7 +241,7 @@ class TicketCog(commands.Cog):
         embed = build_ticket_embed(updated, assignee=assignee)
 
         if updated.discord_msg_id:
-            channel = self.bot.get_text_channel("task_feed")
+            channel = self.bot.get_text_channel("task_feed", interaction.guild)
             if channel and isinstance(channel, discord.TextChannel):
                 try:
                     msg = await channel.fetch_message(int(updated.discord_msg_id))
@@ -277,7 +276,7 @@ class TicketCog(commands.Cog):
         embed = build_ticket_embed(closed, assignee=None)
 
         if closed.discord_msg_id:
-            channel = self.bot.get_text_channel("task_feed")
+            channel = self.bot.get_text_channel("task_feed", interaction.guild)
             if channel and isinstance(channel, discord.TextChannel):
                 try:
                     msg = await channel.fetch_message(int(closed.discord_msg_id))

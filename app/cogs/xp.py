@@ -9,7 +9,6 @@ import asyncio
 from sqlalchemy.ext.asyncio import result
 
 from app import database
-from app.config import settings
 from app.embeds.leaderboard_embed import build_leaderboard_embed
 from app.services.member_service import MemberService
 from app.services.steak_service import StreakService
@@ -86,26 +85,22 @@ class XPCog(commands.Cog):
 
     async def _leaderboard_post_job(self) -> None:
         log.info("job.leaderboard_post.start")
-        guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
-        if guild is None:
-            return
-        channel = self.bot.get_text_channel("rankings", guild)
-        if not isinstance(channel, discord.TextChannel):
-            return
-
         entries = await self._xp_service().leaderboard(limit=10)
         embed = build_leaderboard_embed(entries, period="Weekly")
-        await channel.send(embed=embed)
-        log.info("job.leaderboard_post.done", entries=len(entries))
+
+        posted = 0
+        for guild in self.bot.guilds:
+            channel = self.bot.get_text_channel("rankings", guild)
+            if isinstance(channel, discord.TextChannel):
+                await channel.send(embed=embed)
+                posted += 1
+
+        log.info("job.leaderboard_post.done", entries=len(entries), posted=posted)
 
     async def _streak_check_job(self) -> None:
         log.info("job.streak_check.start")
         broken_ids = await self._streak_service().check_all_streaks()
         if not broken_ids:
-            return
-
-        guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
-        if guild is None:
             return
 
         svc = MemberService(database.get_db())
@@ -152,5 +147,4 @@ class XPCog(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(XPCog(bot))
-
 

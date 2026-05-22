@@ -14,6 +14,7 @@ from app.models.member import Member
 
 from app.embeds.github_embed import build_commit_embed, build_pr_embed, build_ci_failure_embed
 from app.config import settings
+from app.channels import CHANNEL_MANIFEST
 
 if TYPE_CHECKING:
     from supabase import Client
@@ -369,20 +370,20 @@ class GitHubService:
     async def _post_to_channel(self, channel_key: str, embed) -> None:
         if self._bot is None:
             return
-        channel_map = {
-            "github_feed": settings.CHANNEL_GITHUB_FEED,
-            "code_review": settings.CHANNEL_CODE_REVIEW,
-            "shoutouts": settings.CHANNEL_SHOUTOUTS
-        }
-        channel_id = channel_map.get(channel_key)
-        if channel_id is None:
-            return
-        guild = self._bot.get_guild(settings.DISCORD_GUILD_ID)
-        if guild is None:
-            return
-        channel = guild.get_channel(channel_id)
-        if isinstance(channel, discord.TextChannel):
-            await channel.send(embed=embed)
+        channel_name = CHANNEL_MANIFEST.get(channel_key, (None, None))[0]
+        posted = 0
+        for guild in self._bot.guilds:
+            channel = None
+            if hasattr(self._bot, "get_text_channel"):
+                channel = self._bot.get_text_channel(channel_key, guild)
+            if channel is None and channel_name:
+                channel = discord.utils.get(guild.text_channels, name=channel_name)
+            if isinstance(channel, discord.TextChannel):
+                await channel.send(embed=embed)
+                posted += 1
+
+        if posted:
+            log.info("github.posted", channel=channel_key, posted=posted)
 
     async def _increment_stat(self, member_id: str, field: str) -> None:
         def _fetch():

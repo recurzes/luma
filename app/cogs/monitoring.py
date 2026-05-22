@@ -113,11 +113,14 @@ class MonitoringCog(commands.Cog):
         if not stale.data:
             return
 
-        task_feed = self.bot.get_text_channel("task_feed")
-        if not isinstance(task_feed, discord.TextChannel):
+        task_channels: list[tuple[discord.Guild, discord.TextChannel]] = []
+        for guild in self.bot.guilds:
+            channel = self.bot.get_text_channel("task_feed", guild)
+            if isinstance(channel, discord.TextChannel):
+                task_channels.append((guild, channel))
+        if not task_channels:
             return
 
-        guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
         assignee_ids = ({t["assignee_id"] for t in stale.data if t.get("assignee_id")})
         members_by_id: dict[str, dict] = {}
         if assignee_ids:
@@ -137,22 +140,32 @@ class MonitoringCog(commands.Cog):
             aid = ticket.get("assignee_id")
             if aid and aid in members_by_id:
                 m = members_by_id[aid]
-                if guild:
+                for guild, channel in task_channels:
                     gm = guild.get_member(int(m["discord_id"]))
                     mention = gm.mention if gm else f"<@{m['discord_id']}>"
-                else:
-                    mention = f"<@{m['discord_id']}>"
-                assignee_line = f"\n**Assignee:** {mention} ({m['discord_name']})"
+                    assignee_line = f"\n**Assignee:** {mention} ({m['discord_name']})"
+                    embed = discord.Embed(
+                        title="Stale Ticket Warning",
+                        description=(
+                            f"**{ticket['title']}** has been `in_progress` for 48+ hours"
+                            f"with no activity.{assignee_line}\n`id: {str(ticket['id'])[:8]}...`"
+                        ),
+                        color=discord.Color.yellow()
+                    )
+                    await channel.send(embed=embed)
+                log.info("stale_ticket.warned", ticket_id=ticket["id"])
+                continue
 
             embed = discord.Embed(
                 title="Stale Ticket Warning",
                 description=(
                     f"**{ticket['title']}** has been `in_progress` for 48+ hours"
-                    f"with no activity.{assignee_line}\n`id: {str(ticket['id'])[:8]}...`"
+                    f"with no activity.\n`id: {str(ticket['id'])[:8]}...`"
                 ),
                 color=discord.Color.yellow()
             )
-            await task_feed.send(embed=embed)
+            for _, channel in task_channels:
+                await channel.send(embed=embed)
             log.info("stale_ticket.warned", ticket_id=ticket["id"])
 
     async def _pr_stale_check(self) -> None:
@@ -187,11 +200,14 @@ class MonitoringCog(commands.Cog):
         if not rows:
             return
 
-        code_review = self.bot.get_text_channel("code_review")
-        if not isinstance(code_review, discord.TextChannel):
+        code_channels: list[tuple[discord.Guild, discord.TextChannel]] = []
+        for guild in self.bot.guilds:
+            channel = self.bot.get_text_channel("code_review", guild)
+            if isinstance(channel, discord.TextChannel):
+                code_channels.append((guild, channel))
+        if not code_channels:
             return
 
-        guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
         member_svc = MemberService(self._db)
 
         seen_pr: set[int] = set()
@@ -207,25 +223,23 @@ class MonitoringCog(commands.Cog):
             rev_uuid = row.get("reviewer_member_id")
             if rev_uuid:
                 rev_member = await member_svc.get_by_id(str(rev_uuid))
-                if rev_member and guild:
-                    gm = guild.get_member(int(rev_member.discord_id))
-                    mention = (gm.mention if gm else f"<@{rev_member.discord_id}>") + " "
-                elif rev_member:
-                    mention = f"<@{rev_member.discord_id}>"
+                if rev_member:
+                    mentions = []
+                    for guild, _ in code_channels:
+                        gm = guild.get_member(int(rev_member.discord_id))
+                        mentions.append(gm.mention if gm else f"<@{rev_member.discord_id}>")
+                    mention = " ".join(sorted(set(mentions))) + " "
 
             pr_url = row.get("pr_url") or ""
             msg = (
                 f"PR **#{pr_num}** has been open 24+ hours with no review yet — {mention}\n"
                 f"{pr_url}"
             )
-            await code_review.send(msg)
+            for _, channel in code_channels:
+                await channel.send(msg)
             log.info("pr_stale.pinged", pr_number=pr_num)
 
     async def _tip_of_the_day(self) -> None:
-        tip_channel = self.bot.get_text_channel("tip_of_the_day")
-        if not isinstance(tip_channel, discord.TextChannel):
-            return
-
         tips = settings.DEV_TIPS
         if not tips:
             return
@@ -236,8 +250,16 @@ class MonitoringCog(commands.Cog):
             color=discord.Color.teal()
         )
         embed.set_footer(text=f"LumaBot · {datetime.now(timezone.utc).strftime('%A, %B %-d')}")
-        await tip_channel.send(embed=embed)
-        log.info("tip_of_day.posted")
+
+        posted = 0
+        for guild in self.bot.guilds:
+            tip_channel = self.bot.get_text_channel("tip_of_the_day", guild)
+            if isinstance(tip_channel, discord.TextChannel):
+                await tip_channel.send(embed=embed)
+                posted += 1
+
+        if posted:
+            log.info("tip_of_day.posted", posted=posted)
 
     async def _mood_checkin_dm(self) -> None:
         global _mood_state, _mood_prompt_by_msg
@@ -274,18 +296,22 @@ class MonitoringCog(commands.Cog):
             for k, v in sorted(distribution.items())
         )
 
-        general = self.bot.get_text_channel("general")
-        if not isinstance(general, discord.TextChannel):
-            return
-
         embed = discord.Embed(
             title="Team Mood Check-in",
             description=f"**Average score:** {avg:.1f} / 5\n**Responses:** {len(scores)}\n\n{dist_lines}",
             color=discord.Color.blue()
         )
         embed.set_footer(text="Anonymous aggregate · LumaBot")
-        await general.send(embed=embed)
-        log.info("mood_aggregate.posted", avg=round(avg, 2), responses=len(scores))
+
+        posted = 0
+        for guild in self.bot.guilds:
+            general = self.bot.get_text_channel("general", guild)
+            if not isinstance(general, discord.TextChannel):
+                continue
+            await general.send(embed=embed)
+            posted += 1
+
+        log.info("mood_aggregate.posted", avg=round(avg, 2), responses=len(scores), posted=posted)
 
 
 async def setup(bot: commands.Bot) -> None:
