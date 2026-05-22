@@ -333,6 +333,7 @@ class TicketCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="board", description="Show the full ticket board grouped by status")
+    @app_commands.checks.cooldown(1, 30.0, key=lambda i: i.guild_id)
     async def board(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
