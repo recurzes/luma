@@ -40,5 +40,5 @@ def build_badge_award_embed(member: Member, badge: Badge) -> discord.Embed:
         description=f"**{member.discord_name}** just unlocked a badge!\n\n_{flavor}_",
         color=color,
     )
-    embed.set_footer(text="Badge earned · DevBot")
+    embed.set_footer(text="Badge earned · LumaBot")
     return embed

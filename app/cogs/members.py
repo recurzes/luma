@@ -31,7 +31,7 @@ class MemberCog(commands.GroupCog, name="member"):
     def _service(self) -> MemberService:
         return MemberService(database.get_db())
 
-    @app_commands.command(name="register", description="Register yourself as a DevBot member")
+    @app_commands.command(name="register", description="Register yourself as a LumaBot member")
     async def register(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
 

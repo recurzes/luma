@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from functools import partial
+from typing import Any
 
 import structlog
 from supabase import Client

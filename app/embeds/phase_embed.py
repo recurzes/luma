@@ -65,5 +65,5 @@ def build_completion_ceremony(phase: Phase, summary: dict) -> discord.Embed:
         ]
         embed.add_field(name="Streak Leaders", value="\n".join(streak_lines), inline=False)
 
-    embed.set_footer(text=f"Phase {phase.key} completed · DevBot")
+    embed.set_footer(text=f"Phase {phase.key} completed · LumaBot")
     return embed

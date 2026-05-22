@@ -98,6 +98,6 @@ Apply migrations to Supabase in order:
 
 ```bash
 # via supabase CLI or directly in SQL Editor
-psql $SUPABASE_URL -f devbot/migrations/001_bot_tables.sql
-psql $SUPABASE_URL -f devbot/migrations/002_seed.sql
+psql $SUPABASE_URL -f app/migrations/001_bot_tables.sql
+psql $SUPABASE_URL -f app/migrations/002_seed.sql
 ```
