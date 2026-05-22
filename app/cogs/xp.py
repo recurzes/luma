@@ -75,6 +75,7 @@ class XPCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="leaderboard", description="Show the XP leaderboard")
+    @app_commands.checks.cooldown(1, 30.0, key=lambda i: i.guild_id)
     async def leaderboard(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
         entries = await self._xp_service().leaderboard(limit=10)
