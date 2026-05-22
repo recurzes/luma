@@ -16,6 +16,7 @@ from discord.ext import commands
 from app import database
 from app.channels import CHANNEL_MANIFEST
 from app.config import settings
+from app.logging_config import configure_logging
 
 log = structlog.get_logger()
 
@@ -25,23 +26,7 @@ _last_event_poll: str = datetime.now(timezone.utc).isoformat()
 
 
 def _configure_logging() -> None:
-    shared_processors: list = [
-        structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso")
-    ]
-    renderer = structlog.dev.ConsoleRenderer() if settings.DEBUG else structlog.processors.JSONRenderer()
-
-    structlog.configure(
-        processors=shared_processors + [renderer],
-        wrapper_class=structlog.make_filtering_bound_logger(
-            logging.DEBUG if settings.DEBUG else logging.INFO
-        ),
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True
-    )
+    configure_logging()
 
 
 class LumaBot(commands.Bot):
