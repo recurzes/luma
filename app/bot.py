@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import pkgutil
 import time
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import discord
 import structlog
-import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from discord import app_commands
 from discord.ext import commands
@@ -17,8 +17,11 @@ from app import database
 from app.channels import CHANNEL_MANIFEST
 from app.config import settings
 from app.logging_config import configure_logging
+from dotenv import load_dotenv
 
 log = structlog.get_logger()
+
+load_dotenv()
 
 _start_time = time.monotonic()
 
@@ -28,14 +31,18 @@ _last_event_poll: str = datetime.now(timezone.utc).isoformat()
 def _configure_logging() -> None:
     configure_logging()
 
+INTENTS = discord.Intents.default()
+INTENTS.members = True
+INTENTS.message_content = True
 
-class LumaBot(commands.Bot):
+
+class LumaBot(commands.AutoShardedBot):
     def __init__(self) -> None:
         intents = discord.Intents.default()
         intents.members = True
         intents.message_content = True
 
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.scheduler = AsyncIOScheduler()
 
         self.guild: discord.Guild | None = None
@@ -83,6 +90,7 @@ class LumaBot(commands.Bot):
         self.scheduler.start()
         log.info("scheduler.started")
         self.tree.on_error = self._on_app_command_error
+        await self.tree.sync()
         self.loop.create_task(self._github_event_poll_loop())
 
     async def _load_cogs(self) -> None:
@@ -92,14 +100,14 @@ class LumaBot(commands.Bot):
             await self.load_extension(module_name)
             log.info("cog.loaded", cog=module_name)
 
-        if settings.DISCORD_GUILD_ID:
-            guild = discord.Object(id=settings.DISCORD_GUILD_ID)
-            self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            log.info("commands.synced", count=len(synced), guild_id=settings.DISCORD_GUILD_ID)
-        else:
-            synced = await self.tree.sync()
-            log.info("commands.synced", count=len(synced), scope="global")
+        # if settings.DISCORD_GUILD_ID:
+        #     guild = discord.Object(id=settings.DISCORD_GUILD_ID)
+        #     self.tree.copy_global_to(guild=guild)
+        #     synced = await self.tree.sync(guild=guild)
+        #     log.info("commands.synced", count=len(synced), guild_id=settings.DISCORD_GUILD_ID)
+        # else:
+        #     synced = await self.tree.sync()
+        #     log.info("commands.synced", count=len(synced), scope="global")
 
     async def on_ready(self) -> None:
         assert self.user is not None
@@ -240,11 +248,15 @@ class LumaBot(commands.Bot):
             pass
 
 
-def main() -> None:
+async def main() -> None:
     _configure_logging()
+    if not settings.DISCORD_TOKEN or settings.DISCORD_TOKEN == "place_holder_set_before_running_bot":
+        log.error("DISCORD_TOKEN is not set. Set it in .env before running the bot")
+        sys.exit(1)
     bot = LumaBot()
-    bot.run(settings.DISCORD_TOKEN, log_handler=None)
+    async with bot:
+        await bot.start(settings.DISCORD_TOKEN)
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

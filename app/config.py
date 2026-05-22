@@ -26,20 +26,20 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=True,
+        case_sensitive=False,
         extra="ignore"
     )
 
     # Discord
-    DISCORD_TOKEN: str = Field(..., description="Bot token from Discord Developer Portal")
-    DISCORD_GUILD_ID: int | None = Field(default=None, description="Target guild (server) snowflake ID")
+    DISCORD_TOKEN: str = ""
+    DISCORD_GUILD_ID: int | None = 0
 
     # Supabase
-    SUPABASE_URL: str = Field(..., description="Supabase project URL")
-    SUPABASE_SERVICE_ROLE_KEY: str = Field(..., description="Service role key (full DB access)")
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
 
     # Github Webhook
-    GITHUB_WEBHOOK_SECRET: str = Field(..., description="Secret used to verify GitHub webhook signatures")
+    GITHUB_WEBHOOK_SECRET: str = ""
 
     # Channel IDs
     CHANNEL_TASK_FEED: int | None = Field(default=None, description="#task-feed — live ticket status updates")
