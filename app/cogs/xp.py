@@ -89,7 +89,7 @@ class XPCog(commands.Cog):
         guild = self.bot.get_guild(settings.DISCORD_GUILD_ID)
         if guild is None:
             return
-        channel = guild.get_channel(settings.CHANNEL_RANKINGS)
+        channel = self.bot.get_text_channel("rankings", guild)
         if not isinstance(channel, discord.TextChannel):
             return
 

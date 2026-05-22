@@ -108,14 +108,14 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
 
         embed = build_ticket_embed(ticket, assignee=None)
 
-        channel = interaction.guild.get_channel(settings.CHANNEL_TASK_FEED)
-        if channel and isinstance(channel, discord.TextStyle):
+        channel = self._cog.bot.get_text_channel("task_feed")
+        if channel and isinstance(channel, discord.TextChannel):
             feed_msg = await channel.send(embed=embed)
             await service.update_discord_msg_id(str(ticket.id), str(feed_msg.id))
 
         log.info("ticket.created_via_modal", ticket_id=str(ticket.id), tier=tier_val)
         await interaction.followup.send(
-            f"Ticket `{str(ticket.id)[-8:]}` created and posted to <#{settings.CHANNEL_TASK_FEED}>",
+            f"Ticket `{str(ticket.id)[-8:]}` created and posted to {channel.mention if channel else '#task-feed'}",
             ephemeral=True
         )
 
@@ -185,7 +185,7 @@ class TicketCog(commands.Cog):
         embed = build_ticket_embed(result.ticket, assignee=assignee_record)
 
         if result.ticket.discord_msg_id:
-            channel = interaction.guild.get_channel(settings.CHANNEL_TASK_FEED)
+            channel = self.bot.get_text_channel("task_feed")
             if channel and isinstance(channel, discord.TextChannel):
                 try:
                     msg = await channel.fetch_message(int(result.ticket.discord_msg_id))
@@ -194,7 +194,7 @@ class TicketCog(commands.Cog):
                     await channel.send(embed=embed)
 
         if result.first_t2:
-            feed_channel = interaction.guild.get_channel(settings.CHANNEL_TASK_FEED)
+            feed_channel = self.bot.get_text_channel("task_feed")
             if feed_channel and isinstance(feed_channel, discord.TextChannel):
                 await feed_channel.send(
                     f"📌 **Pairing required:** {member.mention} is taking their first T2 ticket "
@@ -242,7 +242,7 @@ class TicketCog(commands.Cog):
         embed = build_ticket_embed(updated, assignee=assignee)
 
         if updated.discord_msg_id:
-            channel = interaction.guild.get_channel(settings.CHANNEL_TASK_FEED)
+            channel = self.bot.get_text_channel("task_feed")
             if channel and isinstance(channel, discord.TextChannel):
                 try:
                     msg = await channel.fetch_message(int(updated.discord_msg_id))
@@ -277,7 +277,7 @@ class TicketCog(commands.Cog):
         embed = build_ticket_embed(closed, assignee=None)
 
         if closed.discord_msg_id:
-            channel = interaction.guild.get_channel(settings.CHANNEL_TASK_FEED)
+            channel = self.bot.get_text_channel("task_feed")
             if channel and isinstance(channel, discord.TextChannel):
                 try:
                     msg = await channel.fetch_message(int(closed.discord_msg_id))
@@ -286,7 +286,7 @@ class TicketCog(commands.Cog):
                     await channel.send(embed=embed)
 
         if close_result.level_up:
-            shoutouts = interaction.guild.get_channel(settings.CHANNEL_SHOUTOUTS)
+            shoutouts = self.bot.get_text_channel("shoutouts", interaction.guild)
             if shoutouts and isinstance(shoutouts, discord.TextChannel):
                 await shoutouts.send(
                     f"🎉 {interaction.user.mention} just levelled up to **Level {close_result.new_level}** "

@@ -60,7 +60,7 @@ class CultureCog(commands.Cog):
         if receiver:
             await xp.award(str(sender.id), "shoutout_recv")
 
-        shoutouts_channel = interaction.guild.get_channel(settings.CHANNEL_SHOUTOUTS)
+        shoutouts_channel = self.bot.get_text_channel("shoutouts", interaction.guild)
 
         embed = discord.Embed(
             title="Shoutout",
@@ -99,7 +99,7 @@ class CultureCog(commands.Cog):
         except RuntimeError:
             return
 
-        resources_channel = interaction.guild.get_channel(settings.CHANNEL_RESOURCES)
+        resources_channel = self.bot.get_text_channel("resources", interaction.guild)
 
         description = tip
         if link:
@@ -185,7 +185,7 @@ class CultureCog(commands.Cog):
             ),
             color=discord.Color.green()
         )
-        announcements = interaction.guild.get_channel(settings.CHANNEL_ANNOUNCEMENTS)
+        announcements = self.bot.get_text_channel("announcements", interaction.guild)
         if isinstance(announcements, discord.TextChannel):
             await announcements.send(embed=embed)
 
@@ -233,7 +233,7 @@ class CultureCog(commands.Cog):
             description=f"Duration: {elapsed} day(s)\n\nTop performers:\n" + "\n".join(lines or ["—"]),
             color=discord.Color.orange()
         )
-        announcements = interaction.guild.get_channel(settings.CHANNEL_ANNOUNCEMENTS)
+        announcements = self.bot.get_text_channel("announcements", interaction.guild)
         if isinstance(announcements, discord.TextChannel):
             await announcements.send(embed=embed)
 
