@@ -125,6 +125,7 @@ def _register_monitoring_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoSha
 
     scheduler.add_job(
         cog._tip_of_the_day,
+        "cron",
         hour=9,
         minute=30,
         id="tip_of_the_day",
