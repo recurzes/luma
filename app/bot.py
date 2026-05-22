@@ -19,6 +19,8 @@ from app.config import settings
 from app.logging_config import configure_logging
 from dotenv import load_dotenv
 
+from app.scheduler.jobs import register_all_jobs
+
 log = structlog.get_logger()
 
 load_dotenv()
@@ -87,6 +89,7 @@ class LumaBot(commands.AutoShardedBot):
 
     async def setup_hook(self) -> None:
         await self._load_cogs()
+        register_all_jobs(self.scheduler, self)
         self.scheduler.start()
         log.info("scheduler.started")
         self.tree.on_error = self._on_app_command_error

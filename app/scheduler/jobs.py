@@ -8,14 +8,14 @@ from discord.ext import commands
 log = structlog.get_logger()
 
 
-def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
     _register_standup_jobs(scheduler, bot)
     _register_xp_jobs(scheduler, bot)
     _register_stuck_jobs(scheduler, bot)
     _register_monitoring_jobs(scheduler, bot)
 
 
-def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
     cog = bot.cogs.get("StandupCog")
     if cog is None:
         log.warning("jobs.standup_cog_missing", hint="StandupCog not loaded — standup jobs skipped")
@@ -51,7 +51,7 @@ def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> No
     log.info("jobs.standup_registered")
 
 
-def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
     cog = bot.cogs.get("XPCog")
     if cog is None:
         log.warning("jobs.xp_cog_missing", hint="XPCog not loaded — XP/streak jobs skipped")
@@ -84,7 +84,7 @@ def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
     )
 
 
-def _register_stuck_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+def _register_stuck_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
     cog = bot.cogs.get("StuckCog")
     if cog is None:
         log.warning("jobs.stuck_cog_missing", hint="StuckCog not loaded — stuck jobs skipped")
@@ -99,7 +99,7 @@ def _register_stuck_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None
     log.info("jobs.stuck_registered")
 
 
-def _register_monitoring_jobs(scheduler: AsyncIOScheduler, bot: commands.Bot) -> None:
+def _register_monitoring_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
     cog = bot.cogs.get("MonitoringCog")
     if cog is None:
         log.warning("jobs.monitoring_cog_missing", hint="MonitoringCog not loaded — monitoring skipped")

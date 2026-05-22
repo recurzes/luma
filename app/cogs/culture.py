@@ -79,7 +79,7 @@ class CultureCog(commands.Cog):
 
         badge_svc = self._badge()
         sender_badges = await badge_svc.check_and_award(str(sender.id), "shoutout_given")
-        await post_badges_to_shoutouts(self.bot, sender_badges)
+        await post_badges_to_shoutouts(self.bot, sender, sender_badges)
 
         await interaction.followup.send("Shoutout posted!", ephemeral=True)
 
