@@ -38,7 +38,7 @@ INTENTS.members = True
 INTENTS.message_content = True
 
 
-class LumaBot(commands.Bot):
+class LumaBot(commands.AutoShardedBot):
     def __init__(self) -> None:
         intents = discord.Intents.default()
         intents.members = True
