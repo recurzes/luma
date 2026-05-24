@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import structlog
 from rich import _timer
+from sqlalchemy.ext.asyncio import result
 from supabase import Client
 from watchfiles import awatch
 
@@ -60,6 +61,19 @@ class TicketService:
         return await asyncio.get_event_loop().run_in_executor(None, fn)
 
     async def _get_by_id(self, ticket_id: str) -> Ticket | None:
+        def _suffix():
+            return (
+                self._db.table("bot_tickets")
+                .select("*")
+                .ilike("id::text", f"%{ticket_id}")
+                .limit(1)
+                .execute()
+            )
+
+        if len(ticket_id) < 36:
+            result = await self._run(_suffix)
+            return self._parse(result.data[0]) if result.data else None
+
         def _exact():
             return (
                 self._db.table("bot_tickets")
@@ -73,19 +87,6 @@ class TicketService:
         if result.data:
             return self._parse(result.data[0])
 
-        def _suffix():
-            return (
-                self._db.table("bot_tickets")
-                .select("*")
-                .ilike("id::text", f"%{ticket_id}")
-                .limit(1)
-                .execute()
-            )
-
-        result = await self._run(_suffix)
-        if not result.data:
-            return None
-        return self._parse(result.data[0])
 
     # Public API
 
