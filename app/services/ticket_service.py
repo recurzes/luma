@@ -65,7 +65,7 @@ class TicketService:
             return (
                 self._db.table("bot_tickets")
                 .select("*")
-                .ilike("id::text", f"%{ticket_id}")
+                .ilike("id_text", f"%{ticket_id}")
                 .limit(1)
                 .execute()
             )
