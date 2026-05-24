@@ -227,7 +227,7 @@ class BadgeService:
         result = await self._run(_count)
         return (result.data or 0) >= 3
 
-    async def _check_clutch_coder(self, ticket: dict) -> bool:
+    def _check_clutch_coder(self, ticket: dict) -> bool:
         deadline = ticket.get("deadline")
         closed_at = ticket.get("closed_at")
         if not deadline or not closed_at:
@@ -241,7 +241,7 @@ class BadgeService:
         except Exception:
             return False
 
-    async def _check_ship_it(self, pr_opened_at, pr_merged_at) -> bool:
+    def _check_ship_it(self, pr_opened_at, pr_merged_at) -> bool:
         if not pr_opened_at or not pr_merged_at:
             return False
         try:
