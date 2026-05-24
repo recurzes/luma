@@ -64,10 +64,10 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        tier_val = self.tier.value.strip().lower()
+        tier_val = self.tier.value.strip().upper()
         priority_val = self.priority.value.strip().lower()
 
-        if tier_val not in ("t1", "t2", "t3"):
+        if tier_val not in ("T1", "T2", "T3"):
             await interaction.followup.send(
                 "Invalid tier. Use T1, T2, or T3",
                 ephemeral=True
