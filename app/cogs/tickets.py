@@ -12,6 +12,8 @@ from app.embeds.ticket_embed import build_board_embed, build_ticket_embed
 from app.models.ticket import TicketCreate, TierViolationError
 from app.services.member_service import MemberService
 from app.services.ticket_service import TicketService
+from app.services.xp_service import XPService
+from app.services.steak_service import StreakService
 from app.utils.guards import require_member
 from app.utils.badge_broadcast import post_badges_to_shoutouts
 
@@ -131,7 +133,9 @@ class TicketCog(commands.Cog):
     def _ticket_service(self) -> TicketService:
         db = database.get_db()
         members = MemberService(db)
-        return TicketService(db, members, xp_service=None, streak_service=None)
+        xp = XPService(db)
+        streak = StreakService(db, members)
+        return TicketService(db, members, xp_service=xp, streak_service=streak)
 
     @ticket.command(name="create", description="Open a new ticket via form")
     async def ticket_create(self, interaction: discord.Interaction) -> None:

@@ -65,7 +65,7 @@ class TicketService:
             return (
                 self._db.table("bot_tickets")
                 .select("*")
-                .ilike("id_text", f"%{ticket_id}")
+                .ilike("id::text", f"%{ticket_id}")
                 .limit(1)
                 .execute()
             )
@@ -86,6 +86,11 @@ class TicketService:
         result = await self._run(_exact)
         if result.data:
             return self._parse(result.data[0])
+
+        result = await self._run(_suffix)
+        if not result.data:
+            return None
+        return self._parse(result.data[0])
 
 
     # Public API
@@ -303,8 +308,8 @@ class TicketService:
 
         xp_result = None
         if self._xp and closer:
-            action = f"close_t{closed.tier.lower()}"
-            xp_result = await self._xp.award(str(closer.id), action, metadata={"ticket_id": str(closed.id)})
+            action = f"close_{closed.tier.lower()}"
+            xp_result = await xp_svc.award(str(closer.id), action, metadata={"ticket_id": str(closed.id)})
             clutch_ctx = closed.model_dump(mode="json")
             badges.extend(
                 await badge_svc.check_and_award(str(closer.id), action, {"ticket": clutch_ctx})
@@ -364,3 +369,4 @@ class TicketService:
             )
 
         await self._run(_update)
+
