@@ -54,7 +54,7 @@ class PhaseCog(commands.GroupCog, name="phase"):
                 db.table("bot_tickets")
                 .select("id", count="exact")
                 .eq("phase", phase.key)
-                .neq("status", "done")
+                .eq("status", "done")
                 .execute()
             )
         )
