@@ -4,7 +4,6 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from dateutil.utils import today
 from supabase import Client
 
 from app.models.member import Member

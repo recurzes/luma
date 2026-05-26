@@ -184,12 +184,10 @@ class GitHubService:
 
             if author_member and author_member.role == "beginner" and settings.GITHUB_TOKEN:
                 await self._check_any_usage(repo_full, pr_number, author_member)
-
-            if author_member and author_member.role == "beginner" and settings.GITHUB_TOKEN:
                 await self._check_t3_paths(repo_full, pr_number, author_member)
 
         elif action == "closed" and merged:
-            await self._handle_pr_merged(repo_full, pr_number, author_member)
+            await self._handle_pr_merged(event_row, pr, author_member, pr_body)
 
         elif action == "closed" and not merged:
             await self._post_to_channel(
