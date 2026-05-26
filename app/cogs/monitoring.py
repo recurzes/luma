@@ -181,7 +181,7 @@ class MonitoringCog(commands.Cog):
                 .execute()
             )
         )
-        for rev in review_events or []:
+        for rev in (review_events.data or []):
             pr_num = (rev.get("payload") or {}).get("pull_request", {}).get("number")
             if pr_num is not None:
                 reviewed_prs.add(int(pr_num))
