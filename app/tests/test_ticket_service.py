@@ -255,6 +255,21 @@ async def test_close_sets_closed_at_and_increments_stats():
 
 
 @pytest.mark.asyncio
+async def test_get_by_short_id_suffix():
+    short_id = str(TICKET_ID).replace("-", "")[-8:]
+    db = _mock_db(ticket_rows=[TICKET_ROW])
+    service = _make_service(db)
+
+    ticket = await service.get(short_id)
+    assert ticket is not None
+    assert ticket.id == TICKET_ID
+
+    assert db.table.call_args_list[0].args[0] == "bot_tickets"
+    chain = db.table("bot_tickets")
+    chain.ilike.assert_called_once_with("id_text", f"%{short_id}")
+
+
+@pytest.mark.asyncio
 async def test_close_nonexistent_ticket_raises():
     db = _mock_db(ticket_rows=[])
     service = _make_service(db)

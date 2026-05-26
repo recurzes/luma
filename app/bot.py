@@ -9,6 +9,7 @@ from pathlib import Path
 
 import discord
 import structlog
+from postgrest.exceptions import APIError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from discord import app_commands
 from discord.ext import commands
@@ -139,27 +140,47 @@ class LumaBot(commands.AutoShardedBot):
 
         while not self.is_closed():
             await asyncio.sleep(5)
+            cutoff = _last_event_poll
             try:
-                cutoff = _last_event_poll
-
-                def _fetch():
-                    return (
-                        database.get_db()
-                        .table("bot_github_events")
-                        .select("*")
-                        .gt("received_at", cutoff)
-                        .order("received_at", desc=False)
-                        .execute()
-                    )
-
-                result = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+                result = await self._fetch_github_events(cutoff)
 
                 if result.data:
                     _last_event_poll = result.data[-1]["received_at"]
                     await self._dispatch_github_events(result.data)
 
+            except APIError as e:
+                err = e.args[0] if e.args else {}
+                log.error(
+                    "github.poll_loop.error",
+                    code=err.get("code"),
+                    message=err.get("message"),
+                    details=err.get("details"),
+                    cutoff=cutoff,
+                )
             except Exception as e:
-                log.error("github.poll_loop.error", error=str(e))
+                log.error("github.poll_loop.error", error=str(e), cutoff=cutoff)
+
+    async def _fetch_github_events(self, cutoff: str):
+        def _fetch():
+            return (
+                database.get_db()
+                .table("bot_github_events")
+                .select("*")
+                .gt("received_at", cutoff)
+                .order("received_at", desc=False)
+                .limit(50)
+                .execute()
+            )
+
+        try:
+            return await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        except APIError as e:
+            err = e.args[0] if e.args else {}
+            code = err.get("code")
+            if code in (555, "555") or str(code).startswith("5"):
+                await asyncio.sleep(3)
+                return await asyncio.get_event_loop().run_in_executor(None, _fetch)
+            raise
 
     async def _dispatch_github_events(self, events: list[dict]) -> None:
         from app.services.github_service import GitHubService

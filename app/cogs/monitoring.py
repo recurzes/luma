@@ -181,7 +181,7 @@ class MonitoringCog(commands.Cog):
                 .execute()
             )
         )
-        for rev in review_events or []:
+        for rev in (review_events.data or []):
             pr_num = (rev.get("payload") or {}).get("pull_request", {}).get("number")
             if pr_num is not None:
                 reviewed_prs.add(int(pr_num))
@@ -189,7 +189,7 @@ class MonitoringCog(commands.Cog):
         stale_rows = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: (
-                self._db.table("bot_pr_reviews")
+                self._db.table("bot_pr_reviewers")
                 .select("pr_number, reviewer_member_id, pr_url")
                 .lt("pr_created_at", cutoff)
                 .execute()

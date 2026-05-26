@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
+
 import structlog
 from fastapi import APIRouter, Header, Request
 
 from app import database
 from app.webhooks.validators import require_valid_github_signature
-import json
 
 log = structlog.get_logger()
 
@@ -46,14 +48,22 @@ async def receive_github_webhook(
     actor = _extract_actor(x_github_event, payload)
 
     db = database.get_db()
-    db.table("bot_github_events").insert(
-        {
-            "event_type": x_github_event,
-            "actor": actor,
-            "member_id": None,
-            "payload": payload
-        }
-    ).execute()
+
+    def _insert():
+        return (
+            db.table("bot_github_events")
+            .insert(
+                {
+                    "event_type": x_github_event,
+                    "actor": actor,
+                    "member_id": None,
+                    "payload": payload,
+                }
+            )
+            .execute()
+        )
+
+    await asyncio.get_event_loop().run_in_executor(None, _insert)
 
     log.info("github.event.stored", event_type=x_github_event, actor=actor)
     return {"received": True}

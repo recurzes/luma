@@ -156,6 +156,10 @@ async def test_check_all_streaks_resets_inactive_member():
     broken = await svc.check_all_streaks()
     assert str(member_obj.id) in broken
 
+    table_names = [call.args[0] for call in db.table.call_args_list]
+    assert "bot_member_stats" in table_names
+    assert "bot_members_stats" not in table_names
+
 
 async def test_check_all_streaks_skips_zero_streak_member():
     db = MagicMock()

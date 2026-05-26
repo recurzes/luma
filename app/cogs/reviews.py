@@ -59,13 +59,14 @@ class ReviewCog(commands.GroupCog, name="review"):
                 db.table("bot_tickets")
                 .update({"reviewer_id": str(reviewer.id)})
                 .eq("id", str(ticket.id))
+                .execute()
             )
         )
         if not updated.data:
             await interaction.followup.send("Failed to update reviewer", ephemeral=True)
             return
 
-        code_review = self.bot.get_text_channel("code-review", interaction.guild)
+        code_review = self.bot.get_text_channel("code_review", interaction.guild)
         if isinstance(code_review, discord.TextChannel):
             await code_review.send(
                 f"📋 PR `{pr_number}` reviewer manually set to {dev.mention} "

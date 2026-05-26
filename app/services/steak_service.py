@@ -4,7 +4,6 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from dateutil.utils import today
 from supabase import Client
 
 from app.models.member import Member
@@ -116,7 +115,7 @@ class StreakService:
                 if stats.data and stats.data[0]["current_streak"] > 0:
                     def _reset(mid=member_id):
                         return (
-                            self._db.table("bot_members_stats")
+                            self._db.table("bot_member_stats")
                             .update({"current_streak": 0})
                             .eq("member_id", mid)
                             .execute()
