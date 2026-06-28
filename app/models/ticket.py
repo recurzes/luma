@@ -17,6 +17,7 @@ class Ticket(BaseModel):
     assignee_id: UUID | None
     reviewer_id: UUID | None
     created_by: UUID | None
+    project_id: UUID | None = None
     deadline: datetime | None
     closed_at: datetime | None
     github_pr: str | None
@@ -31,6 +32,7 @@ class TicketCreate(BaseModel):
     tier: str
     priority: str = "medium"
     phase: str | None = None
+    project_id: UUID | None = None
     deadline: datetime | None = None
 
 
