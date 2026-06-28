@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 import discord
 import structlog
@@ -11,6 +12,7 @@ from app import database
 from app.embeds.ticket_embed import build_board_embed, build_ticket_embed
 from app.models.ticket import TicketCreate, TierViolationError
 from app.services.member_service import MemberService
+from app.services.project_service import ProjectService
 from app.services.ticket_service import TicketService
 from app.services.xp_service import XPService
 from app.services.steak_service import StreakService
@@ -59,9 +61,10 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
         max_length=10,
     )
 
-    def __init__(self, cog: TicketCog) -> None:
+    def __init__(self, cog: TicketCog, project_id: UUID) -> None:
         super().__init__()
         self._cog = cog
+        self._project_id = project_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -102,7 +105,8 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
                 description=self.description.value.strip() or None,
                 tier=tier_val,
                 priority=priority_val,
-                deadline=deadline_dt
+                deadline=deadline_dt,
+                project_id=self._project_id
             ),
             created_by_discord_id=str(interaction.user.id)
         )
@@ -137,12 +141,22 @@ class TicketCog(commands.Cog):
         streak = StreakService(db, members)
         return TicketService(db, members, xp_service=xp, streak_service=streak)
 
+    def _project_service(self) -> ProjectService:
+        svc = getattr(self.bot, "services", {}).get("project")
+        if svc is not None:
+            return svc
+        return ProjectService(database.get_db())
+
     @ticket.command(name="create", description="Open a new ticket via form")
     async def ticket_create(self, interaction: discord.Interaction) -> None:
         try:
-            await require_member(interaction)
+            member = await require_member(interaction)
         except RuntimeError:
             return
+        project = await self._project_service().resolve_active_or_abort(member.id, interaction)
+        if not project:
+            return
+
         await interaction.response.send_modal(TicketModal(self))
 
     @ticket.command(name="assign", description="Assign a ticket to a team member")
