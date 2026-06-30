@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic==0.113.0",
     "apscheduler>=3.11.2",
     "discord>=2.3.2",
     "fastapi[all]>=0.136.1",

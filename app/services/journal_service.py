@@ -8,6 +8,7 @@ from supabase import Client
 
 from app.models.journal import JournalEntry, JournalEntryCreate, ADR
 from app.services.xp_service import XPService
+import anthropic
 
 
 class JournalService:
@@ -130,6 +131,99 @@ class JournalService:
             query = query.eq("project_id", str(project_id))
         result = query.execute()
         return [JournalEntry(**r) for r in result.data]
+
+
+    async def search(self, member_id: UUID, query_text: str, project_id: UUID | None = None) -> list[JournalEntry]:
+        result = self.db.rpc("journal_fts_search", {
+            "p_member_id": str(member_id),
+            "p_project_id": str(project_id) if project_id else None,
+            "p_query": query_text
+        }).execute()
+        return [JournalEntry(**r) for r in result.data]
+
+
+    async def list_adrs(self, project_id: UUID) -> list[ADR]:
+        result = (
+            self.db.table("companion_adrs")
+            .select("*")
+            .eq("project_id", str(project_id))
+            .order("sequence")
+            .execute()
+        )
+        return [ADR(**r) for r in result.data]
+
+
+    #Synthesis
+    async def synthesize_sprint(
+            self,
+            member_id: UUID,
+            project_id: UUID,
+            sprint_start: datetime,
+            sprint_end: datetime
+    ) -> str:
+        entries = (
+            self.db.table("companion_journal_entries")
+            .select("*")
+            .eq("member_id", str(member_id))
+            .eq("project_id", str(project_id))
+            .gte("created_at", sprint_start.isoformat())
+            .lte("created_at", sprint_start.isoformat())
+            .order("created_at")
+            .execute()
+        )
+
+
+    async def _ai_synthesis(self, entries: list[JournalEntry], adrs: list[ADR]) -> str:
+        client = anthropic.Anthropic()
+        entries_text = "\n\n".join(
+            f"[{e.created_at.strftime('%b %d')}] ({e.entry_type}) {e.content}"
+            for e in entries
+        )
+        adr_text = "\n".join(
+            f"ADR #{a.sequence}: {a.title} - {a.decision}"
+            for a in adrs
+        ) or "None"
+
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=600,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Here are a developer's journal entries from this sprint:\n\n{entries_text}\n\n"
+                    f"Key decisions made:\n{adr_text}\n\n"
+                    "Write a concise sprint journal summary (3-5 sentences) for a team retro. "
+                    "Cover: what was built, any notable challenges, mood trend, and key decisions. "
+                    "Be factual and direct. No fluff"
+                ),
+            }]
+        )
+        return message.content[0].text
+
+
+    def _rule_based_synthesis(self, entries: list[JournalEntry], adrs: list[ADR]) -> str:
+        if not entries:
+            return "No journal entries this sprint"
+
+        moods = [e.mood for e in entries if e.mood]
+        avg_mood = sum(moods) / len(moods) if moods else None
+
+        tags: dict[str, int] = {}
+        for e in entries:
+            for tag in (e.tags or []):
+                tags[tag] = tags.get(tag, 0) + 1
+        top_tags = sorted(tags.items(), key=lambda x: -x[1])[:3]
+
+        adr_lines = "\n".join(f" • {a.title} [ADR #{a.sequence}]" for a in adrs) or "  None"
+        tag_str = ", ".join(f"{t} ({c})" for t, c in top_tags) or "none"
+        mood_str = f"{avg_mood:.1f}/5" if avg_mood else "not logged"
+
+        return (
+            f"**Sprint Journal Summary**\n"
+            f"{len(entries)} entries · Mood avg: {mood_str}\n\n"
+            f"**Key decisions:**\n{adr_lines}\n\n"
+            f"**Recurring themes:** {tag_str}"
+        )
 
 
     # Helpers
