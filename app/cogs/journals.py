@@ -6,6 +6,7 @@ import discord
 import structlog
 from discord import app_commands
 from discord.ext import commands
+from uuid import UUID
 
 from app import database
 from app.models.journal import JournalEntryCreate
@@ -36,6 +37,7 @@ class JournalCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self.db = database.get_db()
 
     def _journal_svc(self) -> JournalService:
         db = database.get_db()
@@ -190,4 +192,143 @@ class JournalCog(commands.Cog):
 
         svc = self._journal_svc()
         try:
-            entries = await svc.searc
+            entries = await svc.search(
+                member_id=member.id,
+                query_text=query,
+                project_id=project.id if project else None
+            )
+        except Exception as e:
+            log.error("journal_search_error", error=str(e))
+            await interaction.followup.send("Search failed. Try again", ephemeral=True)
+            return
+
+        embed = build_search_embed(entries, query=query)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    @journal.command(name="summary", description="Generate a sprint summary from your journal")
+    async def journal_summary(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
+        project = await self._project_svc().resolve_active_or_abort(member.id, interaction)
+        if not project:
+            return
+
+        svc = self._journal_svc()
+        now = datetime.now(timezone.utc)
+        sprint_start = now - timedelta(days=14)
+
+        try:
+            summary = await svc.synthesize_sprint(
+                member_id=member.id,
+                project_id=project.id,
+                sprint_start=sprint_start,
+                sprint_end=now
+            )
+        except Exception as e:
+            log.error("journal_summary_error", error=str(e))
+            await interaction.followup.send("Could not generate summary. Try again.", ephemeral=True)
+            return
+
+        embed = build_summary_embed(summary, project_name=project.name)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    @journal_adr.command(name="list", description="List all ADRs for your active project")
+    async def adr_list(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
+        project = await self._project_svc().resolve_active_or_abort(member.id, interaction)
+        if not project:
+            return
+
+        svc = self._journal_svc()
+        adrs = await svc.list_adrs(project.id)
+        embed = build_adr_list_embed(adrs, project_name=project.name)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    @journal_adr.command(name="view", description="View a single ADR by sequence number")
+    @app_commands.describe(sequence="ADR number (e.g. 1, 2, 3...)")
+    async def adr_view(
+            self,
+            interaction: discord.Interaction,
+            sequence: int
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
+        project = await self._project_svc().resolve_active_or_abort(member.id, interaction)
+        if not project:
+            return
+
+        svc = self._journal_svc()
+        adrs = await svc.list_adrs(project.id)
+        match = next((a for a in adrs if a.sequence == sequence), None)
+
+        if not match:
+            await interaction.followup.send(
+                f"No ADR #{sequence} found for **{project.name}**", ephemeral=True
+            )
+            return
+
+        embed = build_adr_embed(match, project_name=project.name)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    @journal.error
+    @journal_adr.error
+    async def journal_error(
+            self,
+            interaction: discord.Interaction,
+            error: app_commands.AppCommandError
+    ) -> None:
+        log.error("journal_command_error", error=str(error))
+        msg = "Something went wrong. Try again or ping the Lead"
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+
+
+    # Scheduled Jobs
+    async def _send_eod_journal_prompts(self):
+        members_result = self.db.table("bot_members").select("id, discord_id").execute()
+
+        for row in members_result.data:
+            member_id = UUID(row["id"])
+            discord_id = int(row["discord_id"])
+
+            project = await self._project_svc().get_active_project(member_id)
+            project_name = project.name if project else "your project"
+
+            user = self.bot.get_user(discord_id)
+            if not user:
+                try:
+                    user = await self.bot.fetch_user(discord_id)
+                except discord.NotFound:
+                    continue
+
+            try:
+                await user.send(
+                    f"**End of day!** What did you build or learn today on **{project_name}**\n\n"
+                    f"Reply here and I'll save it. Add a mood with `/journal mood 1-5`.\n"
+                    f"*(Skip this? Just ignore it)*"
+                )
+            except discord.Forbidden:
+                pass
+
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(JournalCog(bot))

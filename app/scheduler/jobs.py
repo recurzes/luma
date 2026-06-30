@@ -13,6 +13,7 @@ def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot)
     _register_xp_jobs(scheduler, bot)
     _register_stuck_jobs(scheduler, bot)
     _register_monitoring_jobs(scheduler, bot)
+    _register_journal_jobs(scheduler, bot)
 
 
 def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
@@ -153,3 +154,22 @@ def _register_monitoring_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoSha
     )
 
     log.info("jobs.monitoring_registered")
+
+
+def _register_journal_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
+    cog = bot.cogs.get("JournalCog")
+    if cog is None:
+        log.warning("jobs.journal_cog_missing", hint="JournalCog not loaded — journaling skipped")
+        return
+
+    scheduler.add_job(
+        cog._send_eod_journal_prompts,
+        "cron",
+        day_of_week="mon-fri",
+        hour=17,
+        minute=0,
+        id="journal_eod_prompt",
+        replace_existing=True,
+    )
+
+    log.info("jobs.journal_registered")
