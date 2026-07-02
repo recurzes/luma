@@ -14,6 +14,7 @@ def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot)
     _register_stuck_jobs(scheduler, bot)
     _register_monitoring_jobs(scheduler, bot)
     _register_journal_jobs(scheduler, bot)
+    _register_track_jobs(scheduler, bot)
 
 
 def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
@@ -173,3 +174,22 @@ def _register_journal_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoSharde
     )
 
     log.info("jobs.journal_registered")
+
+
+def _register_track_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
+    cog = bot.cogs.get("TrackCog")
+    if cog is None:
+        log.warning("jobs.track_cog_missing", hint="TrackCog not loaded — track nudge skipped")
+        return
+
+    scheduler.add_job(
+        cog._monday_nudge_job,
+        "cron",
+        day_of_week="mon",
+        hour=9,
+        minute=0,
+        id="track_monday_nudge",
+        replace_existing=True,
+    )
+
+    log.info("jobs.track_registered")
