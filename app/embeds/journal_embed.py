@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 
 import discord
 
-from devbot.models.companion.journal import JournalEntry, ADR
+from app.models.journal import JournalEntry, ADR
 
 
 # ── Lookup maps ───────────────────────────────────────────────────────────────

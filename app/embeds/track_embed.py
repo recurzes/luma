@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import discord
 
-from devbot.models.companion.track import Track, Checkpoint, TrackProgress
+from app.models.track import Track, Checkpoint, TrackProgress
 
 # ── Lookup maps ───────────────────────────────────────────────────────────────
 
