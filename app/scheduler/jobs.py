@@ -15,6 +15,7 @@ def register_all_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot)
     _register_monitoring_jobs(scheduler, bot)
     _register_journal_jobs(scheduler, bot)
     _register_track_jobs(scheduler, bot)
+    _register_blitz_jobs(scheduler, bot)
 
 
 def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
@@ -193,3 +194,25 @@ def _register_track_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedB
     )
 
     log.info("jobs.track_registered")
+
+
+def _register_blitz_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
+    cog = bot.cogs.get("BlitzCog")
+    if cog is None:
+        log.warning("jobs.blitz_cog_missing", hint="BlitzCog not loaded — blitz jobs skipped")
+        return
+
+    scheduler.add_job(
+        cog._blitz_tick,
+        trigger=IntervalTrigger(minutes=1),
+        id="blitz_tick",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        cog._blitz_nudge_inactive,
+        trigger=IntervalTrigger(hours=8),
+        id="blitz_nudge_inactive",
+        replace_existing=True,
+    )
+
+    log.info("jobs.blitz_registered")
