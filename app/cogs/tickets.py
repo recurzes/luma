@@ -127,12 +127,10 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
 
 # Cog
 
-class TicketCog(commands.Cog):
-    ticket = app_commands.Group(name="ticket", description="Ticket management commands")
-    tickets = app_commands.Group(name="tickets", description="Ticket view commands")
-
+class TicketCog(commands.GroupCog, name="ticket"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
     def _ticket_service(self) -> TicketService:
         db = database.get_db()
@@ -147,7 +145,7 @@ class TicketCog(commands.Cog):
             return svc
         return ProjectService(database.get_db())
 
-    @ticket.command(name="create", description="Open a new ticket via form")
+    @app_commands.command(name="create", description="Open a new ticket via form")
     async def ticket_create(self, interaction: discord.Interaction) -> None:
         try:
             member = await require_member(interaction)
@@ -157,9 +155,9 @@ class TicketCog(commands.Cog):
         if not project:
             return
 
-        await interaction.response.send_modal(TicketModal(self))
+        await interaction.response.send_modal(TicketModal(self, project.id))
 
-    @ticket.command(name="assign", description="Assign a ticket to a team member")
+    @app_commands.command(name="assign", description="Assign a ticket to a team member")
     @app_commands.describe(
         ticket_id="Ticket ID (last 8 chars or full UUID)",
         member="Team member to assign"
@@ -223,7 +221,7 @@ class TicketCog(commands.Cog):
             ephemeral=True
         )
 
-    @ticket.command(name="status", description="Update ticket status")
+    @app_commands.command(name="status", description="Update ticket status")
     @app_commands.describe(
         ticket_id="Ticket ID (last 8 chars or full UUID)",
         new_status="New status"
@@ -272,7 +270,7 @@ class TicketCog(commands.Cog):
             ephemeral=True
         )
 
-    @ticket.command(name="close", description="Close a ticket")
+    @app_commands.command(name="close", description="Close a ticket")
     @app_commands.describe(ticket_id="Ticket ID (last 8 chars or full UUID)")
     async def ticket_close(self, interaction: discord.Interaction, ticket_id: str) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -320,7 +318,7 @@ class TicketCog(commands.Cog):
             ephemeral=True
         )
 
-    @ticket.command(name="mine", description="Show your open tickets")
+    @app_commands.command(name="mine", description="Show your open tickets")
     async def tickets_mine(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
 

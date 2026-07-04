@@ -218,7 +218,7 @@ def build_checkpoint_done_embed(
     if completed:
         embed.description = (
             f"🏆 You've finished **{track_name}**!\n"
-            "A completion badge has been triggered. Check `/xp` for your new total."
+            "A completion badge has been triggered. Check `/xp show` for your new total."
         )
     elif next_checkpoint:
         value_lines = [f"**{next_checkpoint.title}**"]

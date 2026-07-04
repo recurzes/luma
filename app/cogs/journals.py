@@ -27,17 +27,13 @@ _MOOD_CHOICES = [
 ]
 
 
-class JournalCog(commands.Cog):
-    journal = app_commands.Group(name="journal", description="Dev Journal commands")
-    journal_adr = app_commands.Group(
-        name="adr",
-        description="Architectural Decision Records",
-        parent=journal
-    )
+class JournalCog(commands.GroupCog, name="journal"):
+    adr = app_commands.Group(name="adr", description="Architectural Decision Records")
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.db = database.get_db()
+        super().__init__()
 
     def _journal_svc(self) -> JournalService:
         db = database.get_db()
@@ -50,7 +46,7 @@ class JournalCog(commands.Cog):
         return ProjectService(database.get_db())
 
 
-    @journal.command(name="entry", description="Log what you build or learned today")
+    @app_commands.command(name="entry", description="Log what you build or learned today")
     @app_commands.describe(
         text="Your journal entry - what did you do, build or learn?",
         mood="Your energy level right now",
@@ -95,7 +91,7 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal.command(name="decision", description="Record an architectural decision (ADR)")
+    @app_commands.command(name="decision", description="Record an architectural decision (ADR)")
     @app_commands.describe(
         title="Short title for this decision",
         context="What problem or situation led to this decision?",
@@ -139,7 +135,7 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal.command(name="today", description="See all your journal entries for today")
+    @app_commands.command(name="today", description="See all your journal entries for today")
     async def journal_today(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -157,7 +153,7 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal.command(name="week", description="See this week's entries with a mood trend")
+    @app_commands.command(name="week", description="See this week's entries with a mood trend")
     async def journal_week(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -175,7 +171,7 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal.command(name="search", description="Full-text search across your journal entries")
+    @app_commands.command(name="search", description="Full-text search across your journal entries")
     @app_commands.describe(query="Keyword or phrase to search for")
     async def journal_search(
             self,
@@ -206,7 +202,7 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal.command(name="summary", description="Generate a sprint summary from your journal")
+    @app_commands.command(name="summary", description="Generate a sprint summary from your journal")
     async def journal_summary(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -238,7 +234,7 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal_adr.command(name="list", description="List all ADRs for your active project")
+    @adr.command(name="list", description="List all ADRs for your active project")
     async def adr_list(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -256,7 +252,7 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal_adr.command(name="view", description="View a single ADR by sequence number")
+    @adr.command(name="view", description="View a single ADR by sequence number")
     @app_commands.describe(sequence="ADR number (e.g. 1, 2, 3...)")
     async def adr_view(
             self,
@@ -287,9 +283,20 @@ class JournalCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @journal.error
-    @journal_adr.error
-    async def journal_error(
+    @adr.error
+    async def adr_error(
+            self,
+            interaction: discord.Interaction,
+            error: app_commands.AppCommandError
+    ) -> None:
+        log.error("journal_command_error", error=str(error))
+        msg = "Something went wrong. Try again or ping the Lead"
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+
+    async def cog_group_error(
             self,
             interaction: discord.Interaction,
             error: app_commands.AppCommandError

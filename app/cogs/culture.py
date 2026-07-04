@@ -21,9 +21,12 @@ log = structlog.get_logger()
 _active_sprint: dict | None = None
 
 
-class CultureCog(commands.Cog):
+class CultureCog(commands.GroupCog, name="culture"):
+    sprint = app_commands.Group(name="sprint", description="Sprint challenge commands")
+
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
     def _xp(self) -> XPService:
         return XPService(database.get_db())
@@ -128,7 +131,7 @@ class CultureCog(commands.Cog):
         await interaction.followup.send("Resource shared!", ephemeral=True)
 
 
-    @app_commands.command(name="sprint_start", description="Start a sprint challenge (Lead only)")
+    @sprint.command(name="start", description="Start a sprint challenge (Lead only)")
     @app_commands.describe(name="Sprint name", days="Duration in days")
     async def sprint_start(
             self,
@@ -150,7 +153,7 @@ class CultureCog(commands.Cog):
 
         if _active_sprint:
             await interaction.followup.send(
-                f"Sprint **{_active_sprint['name']}** is already active. End it first with `/sprint_end`",
+                f"Sprint **{_active_sprint['name']}** is already active. End it first with `/culture sprint end`",
                 ephemeral=True
             )
             return
@@ -192,7 +195,7 @@ class CultureCog(commands.Cog):
         await interaction.followup.send(f"Sprint **{name}** started!", ephemeral=True)
 
 
-    @app_commands.command(name="sprint_end", description="End the active sprint (Lead only)")
+    @sprint.command(name="end", description="End the active sprint (Lead only)")
     async def sprint_end(self, interaction: discord.Interaction) -> None:
         global _active_sprint
         await interaction.response.defer(ephemeral=True)

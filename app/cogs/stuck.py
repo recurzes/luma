@@ -20,16 +20,17 @@ log = structlog.get_logger()
 _LEAD_PROFESSOR_CHECK = {"lead": "professor"}
 
 
-class StuckCog(commands.Cog):
+class StuckCog(commands.GroupCog, name="stuck"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
     def _svc(self) -> StuckService:
         return StuckService(database.get_db(), XPService(database.get_db()))
 
-    @app_commands.command(name="stuck", description="Open a help thread and start the 15-minute timer")
+    @app_commands.command(name="open", description="Open a help thread and start the 15-minute timer")
     @app_commands.describe(problem="Describe what you're stuck on")
-    async def stuck(self, interaction: discord.Interaction, problem: str) -> None:
+    async def open(self, interaction: discord.Interaction, problem: str) -> None:
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -168,7 +169,7 @@ class StuckCog(commands.Cog):
             if thread.discord_thread_id:
                 await self._send_thread_message(
                     int(thread.discord_thread_id),
-                    "⏰ **15 minutes** — Still stuck? Tag a teammate or request a pair session with `/pair`.",
+                    "⏰ **15 minutes** — Still stuck? Tag a teammate or request a pair session with `/stuck pair`.",
                 )
 
         for thread in threads_30:

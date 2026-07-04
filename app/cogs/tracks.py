@@ -27,16 +27,12 @@ _LEVEL_CHOICES = [
 ]
 
 
-class TrackCog(commands.Cog):
-    track = app_commands.Group(name="track", description="Learning track commands")
-    track_checkpoint = app_commands.Group(
-        name="checkpoint",
-        description="Checkpoint commands",
-        parent=track
-    )
+class TrackCog(commands.GroupCog, name="track"):
+    checkpoint = app_commands.Group(name="checkpoint", description="Checkpoint commands")
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
 
     def _svc(self) -> TrackService:
@@ -46,7 +42,7 @@ class TrackCog(commands.Cog):
         return TrackService(db, xp_svc=xp, badge_svc=badge)
 
 
-    @track.command(name="list", description="Browse all available learning tracks")
+    @app_commands.command(name="list", description="Browse all available learning tracks")
     async def track_list(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -72,7 +68,7 @@ class TrackCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @track.command(name="enroll", description="Enroll in a learning track")
+    @app_commands.command(name="enroll", description="Enroll in a learning track")
     @app_commands.describe(name="Track name to enroll in")
     async def track_enroll(self, interaction: discord.Interaction, name: str) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -120,7 +116,7 @@ class TrackCog(commands.Cog):
                 pass
 
 
-    @track.command(name="progress", description="See your progress across all enrolled tracks")
+    @app_commands.command(name="progress", description="See your progress across all enrolled tracks")
     async def track_progress(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -167,7 +163,7 @@ class TrackCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @track_checkpoint.command(name="done", description="Mark a checkpoint as complete")
+    @checkpoint.command(name="done", description="Mark a checkpoint as complete")
     @app_commands.describe(
         checkpoint_id="Checkpoint ID (first 8 characters shown in the DM or /track progress)",
         answer="Answer to the knowledge check (if required)"
@@ -272,7 +268,7 @@ class TrackCog(commands.Cog):
                 pass
 
 
-    @track.command(name="create", description="Create a new custom learning track")
+    @app_commands.command(name="create", description="Create a new custom learning track")
     @app_commands.describe(
         name="Track name",
         description="What will members learn?",
@@ -312,7 +308,7 @@ class TrackCog(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @track.command(name="add-checkpoint", description="Append a checkpoint to a track")
+    @app_commands.command(name="add-checkpoint", description="Append a checkpoint to a track")
     @app_commands.describe(
         track_name="Track name to add to",
         title="Checkpoint title",
@@ -476,9 +472,24 @@ class TrackCog(commands.Cog):
 
         log.info("track_nudge.sent", nudged=nudged)
 
-    @track.error
-    @track_checkpoint.error
-    async def track_error(
+    @checkpoint.error
+    async def checkpoint_error(
+            self,
+            interaction: discord.Interaction,
+            error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, app_commands.errors.MissingAnyRole):
+            msg = "Only Lead or Professor can use this command."
+        else:
+            log.error("track_command_error", error=str(error))
+            msg = "Something went wrong. Try again or ping the Lead"
+
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+
+    async def cog_group_error(
             self,
             interaction: discord.Interaction,
             error: app_commands.AppCommandError

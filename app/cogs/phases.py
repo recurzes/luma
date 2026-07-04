@@ -20,6 +20,7 @@ log = structlog.get_logger()
 class PhaseCog(commands.GroupCog, name="phase"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
     def _svc(self) -> PhaseService:
         return PhaseService(database.get_db())

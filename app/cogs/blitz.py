@@ -16,15 +16,13 @@ from app.embeds.blitz_embed import _countdown_bar, _remaining_str
 SHOWCASE_GRACE_HOURS = 2
 
 
-class BlitzCog(commands.Cog):
+class BlitzCog(commands.GroupCog, name="blitz"):
     def __init__(self, bot: commands.Bot, blitz_svc: BlitzService):
         self.bot = bot
         self.blitz_svc = blitz_svc
+        super().__init__()
 
-    blitz_group = app_commands.Group(name="blitz", description="Tech Blitz - team learning sprints")
-
-
-    @blitz_group.command(name="start", description="Start a Tech Blitz for the team")
+    @app_commands.command(name="start", description="Start a Tech Blitz for the team")
     @app_commands.describe(
         technology="What are we learning? (e.g. 'Godot 4', 'Rust', 'SvelteKit')",
         tech_category="Category of the technology",
@@ -97,7 +95,7 @@ class BlitzCog(commands.Cog):
         )
 
 
-    @blitz_group.command(name="join", description="Join the active Tech Blitz")
+    @app_commands.command(name="join", description="Join the active Tech Blitz")
     async def blitz_join(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
@@ -121,7 +119,7 @@ class BlitzCog(commands.Cog):
         )
 
 
-    @blitz_group.command(name="checkin", description="Post a progress update during the blitz")
+    @app_commands.command(name="checkin", description="Post a progress update during the blitz")
     @app_commands.describe(
         update="What did you build or learn? What are you working on?",
         mood="Your current energy level (1 = burnt out, 5 = in flow)",
@@ -169,7 +167,7 @@ class BlitzCog(commands.Cog):
         await msg.add_reaction("❤️")
 
 
-    @blitz_group.command(name="showcase", description="Submit your final project for the blitz")
+    @app_commands.command(name="showcase", description="Submit your final project for the blitz")
     @app_commands.describe(
         title="Your project name",
         description="What did you build? What did you learn?",
@@ -213,7 +211,7 @@ class BlitzCog(commands.Cog):
         await msg.add_reaction("🏆")
 
 
-    @blitz_group.command(name="progress", description="See who has checked in and overall blitz status")
+    @app_commands.command(name="progress", description="See who has checked in and overall blitz status")
     async def blitz_progress(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -253,7 +251,7 @@ class BlitzCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
 
-    @blitz_group.command(name="extend", description="Add more time to the active blitz")
+    @app_commands.command(name="extend", description="Add more time to the active blitz")
     @app_commands.describe(hours="Extra hours to add (max 24)")
     @app_commands.checks.has_any_role("Lead", "Professor")
     async def blitz_extend(self, interaction: discord.Interaction, hours: int):
@@ -275,7 +273,7 @@ class BlitzCog(commands.Cog):
         )
 
 
-    @blitz_group.command(name="end", description="Close the blitz and post the showcase gallery")
+    @app_commands.command(name="end", description="Close the blitz and post the showcase gallery")
     @app_commands.checks.has_any_role("Lead", "Professor")
     async def blitz_end(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -294,7 +292,7 @@ class BlitzCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
 
-    @blitz_group.command(name="cancel", description="Cancel the active blitz (no XP awarded)")
+    @app_commands.command(name="cancel", description="Cancel the active blitz (no XP awarded)")
     @app_commands.checks.has_any_role("Lead", "Professor")
     async def blitz_cancel(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -310,7 +308,7 @@ class BlitzCog(commands.Cog):
         )
 
 
-    @blitz_group.command(name="countdown", description="Show the current blitz countdown")
+    @app_commands.command(name="countdown", description="Show the current blitz countdown")
     async def blitz_countdown(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -324,7 +322,7 @@ class BlitzCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
 
-    @blitz_group.command(name="history", description="See past Tech Blitzes")
+    @app_commands.command(name="history", description="See past Tech Blitzes")
     @app_commands.describe(limit="Number of past blitzes to show (default 5)")
     async def blitz_history(self, interaction: discord.Interaction, limit: int = 5):
         await interaction.response.defer()
@@ -354,8 +352,7 @@ class BlitzCog(commands.Cog):
         await interaction.followup.send(embed=embed)
 
 
-    @blitz_group.error
-    async def blitz_error(self, interaction: discord.Interaction, error):
+    async def cog_group_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.errors.MissingAnyRole):
             await interaction.response.send_message(
                 "Only Lead or Professor can use this command", ephemeral=True

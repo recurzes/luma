@@ -15,9 +15,10 @@ log = structlog.get_logger()
 _bot_start: float = time.monotonic()
 
 
-class Ping(commands.Cog):
+class Ping(commands.GroupCog, name="bot"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
     @app_commands.command(name="ping", description="Check bot latency and service health")
     async def ping(self, interaction: discord.Interaction) -> None:

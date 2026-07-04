@@ -18,9 +18,10 @@ from app.utils.guards import require_member
 log = structlog.get_logger()
 
 
-class XPCog(commands.Cog):
+class XPCog(commands.GroupCog, name="xp"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
     def _xp_service(self) -> XPService:
         return XPService(database.get_db())
@@ -29,9 +30,9 @@ class XPCog(commands.Cog):
         db = database.get_db()
         return StreakService(db, MemberService(db))
 
-    @app_commands.command(name="xp", description="Show XP, level and recent activity")
+    @app_commands.command(name="show", description="Show XP, level and recent activity")
     @app_commands.describe(target="Member to look up (defaults to you)")
-    async def xp(
+    async def show(
             self,
             interaction: discord.Interaction,
             target: discord.Member | None = None

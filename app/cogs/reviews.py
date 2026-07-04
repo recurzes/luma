@@ -20,6 +20,7 @@ log = structlog.get_logger()
 class ReviewCog(commands.GroupCog, name="review"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        super().__init__()
 
 
     @app_commands.command(name="assign", description="Manually assign a PR reviewer (Lead/Professor only)")
