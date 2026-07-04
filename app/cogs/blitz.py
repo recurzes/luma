@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from collections import Counter
 
@@ -11,6 +12,8 @@ from app.services.blitz_service import BlitzService
 from app.models.blitz import BlitzCreate
 from app.embeds.blitz_embed import *
 from app.embeds.blitz_embed import _countdown_bar, _remaining_str
+
+SHOWCASE_GRACE_HOURS = 2
 
 
 class BlitzCog(commands.Cog):
@@ -363,6 +366,102 @@ class BlitzCog(commands.Cog):
             await interaction.response.send_message(
                 "Something went wrong. Try again or ping the Lead", ephemeral=True
             )
+
+
+    # Scheduled Jobs
+    async def _blitz_tick(self):
+        sessions = await self.blitz_svc.get_all_active()
+        now = datetime.now(timezone.utc)
+
+        for session in sessions:
+            channel = self.bot.get_channel(int(session.guild_channel_id)) if session.guild_channel_id else None
+
+            if session.status == "active" and session.ends_at and now >= session.ends_at:
+                updated = await self.blitz_svc.transition_to_showcase(session.id)
+
+                if channel:
+                    announce_embed = blitz_showcase_embed(updated)
+                    await channel.send(embed=announce_embed)
+
+                    participants = await self.blitz_svc.get_participants(session.id)
+                    mentions = " ".join(f"<@{p.member_id}>" for p in participants)
+                    if mentions:
+                        await channel.send(
+                            f"{mentions}\n"
+                            f"Time's up! Submit your showcase with `/blitz showcase.` "
+                            f"You have **{SHOWCASE_GRACE_HOURS}**"
+                        )
+                continue
+
+            if session.status == "showcase" and session.ends_at:
+                grace_end = session.ends_at + timedelta(hours=SHOWCASE_GRACE_HOURS)
+                if now >= grace_end:
+                    participants = await self.blitz_svc.get_participants(session.id)
+                    showcases = await self.blitz_svc.get_showcases(session.id)
+
+                    await self.blitz_svc.complete(session.id)
+
+                    if channel:
+                        gallery = blitz_gallery_embed(session, showcases, len(participants))
+                        await channel.send(embed=gallery)
+                continue
+
+            pending = self.blitz_svc.calculate_pending_milestones(session)
+            for milestone in pending:
+                fired = await self.blitz_svc.mark_milestone(session.id, milestone)
+                if fired and channel:
+                    embed = blitz_milestone_embed(session, milestone)
+                    msg = await channel.send(embed=embed)
+
+                    if milestone == "1h_left":
+                        participants = await self.blitz_svc.get_participants(session.id)
+                        mentions = " ".join(f"<@{p.member_id}>" for p in participants)
+                        if mentions:
+                            await channel.send(f"{mentions} - **1 hour left on the blitz!**")
+
+            if session.announce_msg_id and channel:
+                try:
+                    participants = await self.blitz_svc.get_participants(session.id)
+                    embed = blitz_announce_embed(session, len(participants))
+                    msg = await channel.fetch_message(int(session.announce_msg_id))
+                    await msg.edit(embed=embed)
+                except (discord.NotFound, discord.HTTPException):
+                    pass
+
+
+    async def _blitz_nudge_inactive(self):
+        sessions = await self.blitz_svc.get_all_active()
+        now = datetime.now(timezone.utc)
+
+        for session in sessions:
+            if session.status != "active":
+                continue
+
+            participants = await self.blitz_svc.get_participants(session.id)
+            checkins = await self.blitz_svc.get_checkins(session.id)
+            showcases = await self.blitz_svc.get_showcases(session.id)
+
+            showcase_member_ids = {str(s.member_id) for s in showcases}
+            cutoff = now - timedelta(hours=8)
+
+            recent_member_ids = {
+                str(c.member_id) for c in checkins
+                if c.posted_at and c.posted_at > cutoff
+            }
+
+            for p in participants:
+                mid_str = str(p.member_id)
+                if mid_str in showcase_member_ids:
+                    continue
+                if mid_str in recent_member_ids:
+                    continue
+
+                try:
+                    user = self.bot.get_user(int(p.member_id)) or await self.bot.fetch_user(int(p.member_id))
+                    embed = blitz_nudge_embed(session)
+                    await user.send(embed=embed)
+                except discord.Forbidden:
+                    pass
 
 
 async def setup(bot: commands.Bot):
