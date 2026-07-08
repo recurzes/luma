@@ -5,7 +5,7 @@ This document summarizes bot features, how to use them, and the required argumen
 ## Core Features
 
 - Member registration and profiles, including GitHub username linking.
-- Per-server sign-out and per-feature DM notification preferences.
+- Per-server sign-out and per-feature opt-in (standup, mood, journal, etc.).
 - Personal messages labeled with the server they apply to (multi-server safe).
 - Ticket board with assignments, status updates, and XP rewards.
 - Daily standup collection via DM, with automated summaries and reminders.
@@ -23,7 +23,8 @@ This document summarizes bot features, how to use them, and the required argumen
 Notes:
 - Most commands require the user to be registered with `/member register` in the current server.
 - Sign out with `/member signout` to stop DMs and command access in that server; rejoin with `/member register`.
-- Manage DM types with `/member notifications list`, `/member notifications off`, `/member notifications on`.
+- Join optional features with `/member feature join <feature>` (standup, mood, journal, streak, track, blitz, stuck).
+- `/member notifications on|off|list` are aliases for feature join/leave/list.
 - Some commands are restricted to Lead/Professor (enforced in code).
 - Commands with cooldowns include: `/ticket board`, `/xp leaderboard`.
 
@@ -53,6 +54,20 @@ Notes:
 - `/member signout`
   - Purpose: sign out of Luma in this server (stops DMs and slash commands here).
   - Args: none.
+
+- `/member feature list`
+  - Purpose: show which features you have joined on this server.
+  - Args: none.
+
+- `/member feature join <feature>`
+  - Purpose: opt in to a feature (required before receiving standup DMs, mood check-ins, etc.).
+  - Args:
+    - `feature` (required): `standup`, `mood`, `journal`, `streak`, `track`, `blitz`, or `stuck`.
+
+- `/member feature leave <feature>`
+  - Purpose: opt out of a feature on this server.
+  - Args:
+    - `feature` (required): same choices as above.
 
 - `/member notifications list`
   - Purpose: show personal message preferences for this server.
