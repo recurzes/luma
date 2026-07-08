@@ -55,7 +55,7 @@ def _register_standup_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoSharde
 
 
 def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
-    cog = bot.cogs.get("XPCog")
+    cog = bot.cogs.get("xp")
     if cog is None:
         log.warning("jobs.xp_cog_missing", hint="XPCog not loaded — XP/streak jobs skipped")
         return
@@ -88,7 +88,7 @@ def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot)
 
 
 def _register_stuck_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
-    cog = bot.cogs.get("StuckCog")
+    cog = bot.cogs.get("stuck")
     if cog is None:
         log.warning("jobs.stuck_cog_missing", hint="StuckCog not loaded — stuck jobs skipped")
         return
@@ -159,7 +159,7 @@ def _register_monitoring_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoSha
 
 
 def _register_journal_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
-    cog = bot.cogs.get("JournalCog")
+    cog = bot.cogs.get("journal")
     if cog is None:
         log.warning("jobs.journal_cog_missing", hint="JournalCog not loaded — journaling skipped")
         return
@@ -178,7 +178,7 @@ def _register_journal_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoSharde
 
 
 def _register_track_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
-    cog = bot.cogs.get("TrackCog")
+    cog = bot.cogs.get("track")
     if cog is None:
         log.warning("jobs.track_cog_missing", hint="TrackCog not loaded — track nudge skipped")
         return
@@ -197,7 +197,7 @@ def _register_track_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedB
 
 
 def _register_blitz_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot) -> None:
-    cog = bot.cogs.get("BlitzCog")
+    cog = bot.cogs.get("blitz")
     if cog is None:
         log.warning("jobs.blitz_cog_missing", hint="BlitzCog not loaded — blitz jobs skipped")
         return
