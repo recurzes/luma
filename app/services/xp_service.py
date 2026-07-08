@@ -26,7 +26,12 @@ _XP_MAP: dict[str, int] = {
     "standup": 5,
     "shoutout_given": 10,
     "shoutout_recv": 10,
-    "knowledge_drop": 8
+    "knowledge_drop": 8,
+    "blitz_join": 5,
+    "blitz_checkin": 10,
+    "blitz_showcase": 25,
+    "blitz_complete": 50,
+    "blitz_first_in": 5,
 }
 
 _LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1400, 2000]

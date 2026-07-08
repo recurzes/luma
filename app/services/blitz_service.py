@@ -17,6 +17,18 @@ MILESTONES = {
 ONE_HOUR_MILESTONE = "1h_left"
 
 
+def _rows(result) -> list:
+    if result is None:
+        return []
+    data = getattr(result, "data", None)
+    return data if isinstance(data, list) else []
+
+
+def _first_row(result) -> dict | None:
+    rows = _rows(result)
+    return rows[0] if rows else None
+
+
 class BlitzService:
     def __init__(self, db: Client, xp_svc: XPService, badge_svc: BadgeService):
         self.db = db
@@ -51,7 +63,10 @@ class BlitzService:
             })
             .execute()
         )
-        session = BlitzSession(**result.data[0])
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to create blitz session")
+        session = BlitzSession(**row)
 
         await self.join(session.id, payload.created_by)
         return session
@@ -80,7 +95,10 @@ class BlitzService:
             .eq("id", str(blitz_id))
             .execute()
         )
-        return BlitzSession(**result.data[0])
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to update blitz session")
+        return BlitzSession(**row)
 
     async def transition_to_showcase(self, blitz_id: UUID) -> BlitzSession:
         result = (
@@ -89,7 +107,10 @@ class BlitzService:
             .eq("id", str(blitz_id))
             .execute()
         )
-        return BlitzSession(**result.data[0])
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to transition blitz to showcase")
+        return BlitzSession(**row)
 
     async def complete(self, blitz_id: UUID) -> BlitzSession:
         now = datetime.now(timezone.utc)
@@ -112,9 +133,10 @@ class BlitzService:
             .eq("id", str(blitz_id))
             .execute()
         )
-        return BlitzSession(**result.data[0])
-
-    async def cancel(self, blitz_id: UUID) -> BlitzSession:
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to complete blitz session")
+        return BlitzSession(**row)
         now = datetime.now(timezone.utc)
         result = (
             self.db.table("companion_blitz_sessions")
@@ -125,9 +147,10 @@ class BlitzService:
             .eq("id", str(blitz_id))
             .execute()
         )
-        return BlitzSession(**result.data[0])
-
-    # Participation
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to cancel blitz session")
+        return BlitzSession(**row)
     async def join(self, blitz_id: UUID, member_id: UUID) -> BlitzParticipant:
         existing = await self.is_participant(blitz_id, member_id)
         if existing:
@@ -142,9 +165,13 @@ class BlitzService:
             .execute()
         )
 
-        await self.xp_svc.award(str(member_id), "blitz_join", 5)
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to join blitz")
+
+        await self.xp_svc.award(str(member_id), "blitz_join")
         await self.badge_svc.check_and_award(str(member_id), trigger_event="blitz_join_first")
-        return BlitzParticipant(**result.data[0])
+        return BlitzParticipant(**row)
 
     async def is_participant(self, blitz_id: UUID, member_id: UUID) -> bool:
         result = (
@@ -152,10 +179,10 @@ class BlitzService:
             .select("id")
             .eq("blitz_id", str(blitz_id))
             .eq("member_id", str(member_id))
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        return result.data is not None
+        return _first_row(result) is not None
 
     # Check-ins
     async def checkin(
@@ -185,13 +212,16 @@ class BlitzService:
             })
             .execute()
         )
-        checkin = BlitzCheckin(**result.data[0])
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to save check-in")
+        checkin = BlitzCheckin(**row)
 
-        await self.xp_svc.award(str(member_id), "blitz_checkin", {"xp": 10})
+        await self.xp_svc.award(str(member_id), "blitz_checkin")
 
         all_checkins = await self.get_checkins(blitz_id)
         if len(all_checkins) == 1:
-            await self.xp_svc.award(str(member_id), "blitz_first_in", {"xp": 5})
+            await self.xp_svc.award(str(member_id), "blitz_first_in")
 
         return checkin
 
@@ -227,7 +257,11 @@ class BlitzService:
             .execute()
         )
 
-        await self.xp_svc.award(str(member_id), "blitz_showcase", {"xp": 25})
+        row = _first_row(result)
+        if row is None:
+            raise ValueError("Failed to submit showcase")
+
+        await self.xp_svc.award(str(member_id), "blitz_showcase")
         await self.badge_svc.check_and_award(str(member_id), trigger_event="blitz_showcase_first")
 
         if session.started_at and session.ends_at:
@@ -236,7 +270,7 @@ class BlitzService:
             if elapsed / total <= 0.25:
                 await self.badge_svc.check_and_award(str(member_id), trigger_event="blitz_speed_learner")
 
-        return BlitzShowcase(**result.data[0])
+        return BlitzShowcase(**row)
 
 
     async def vote_showcase(self, showcase_id: UUID) -> int:
@@ -244,13 +278,14 @@ class BlitzService:
             self.db.table("companion_blitz_showcases")
             .select("vote_count")
             .eq("id", str(showcase_id))
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        if not current.data:
+        row = _first_row(current)
+        if not row:
             raise ValueError("Showcase not found")
 
-        new_count = (current.data["vote_count"] or 0) + 1
+        new_count = (row["vote_count"] or 0) + 1
         self.db.table("companion_blitz_showcases").update(
             {"vote_count": new_count}
         ).eq("id", str(showcase_id)).execute()
@@ -264,10 +299,10 @@ class BlitzService:
             .select("id")
             .eq("blitz_id", str(blitz_id))
             .eq("milestone", milestone)
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        if existing.data:
+        if _first_row(existing):
             return False
 
         self.db.table("companion_blitz_milestones").insert({
@@ -305,10 +340,11 @@ class BlitzService:
             self.db.table("companion_blitz_sessions")
             .select("*")
             .eq("id", str(blitz_id))
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        return BlitzSession(**result.data) if result.data else None
+        row = _first_row(result)
+        return BlitzSession(**row) if row else None
 
     async def get_active(self, guild_id: str) -> BlitzSession | None:
         result = (
@@ -316,10 +352,11 @@ class BlitzService:
             .select("*")
             .eq("guild_id", guild_id)
             .in_("status", ["active", "showcase"])
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        return BlitzSession(**result.data) if result.data else None
+        row = _first_row(result)
+        return BlitzSession(**row) if row else None
 
     async def get_all_active(self) -> list[BlitzSession]:
         result = (
@@ -328,7 +365,7 @@ class BlitzService:
             .in_("status", ["active", "showcase"])
             .execute()
         )
-        return [BlitzSession(**r) for r in result.data]
+        return [BlitzSession(**r) for r in _rows(result)]
 
     async def get_participants(self, blitz_id: UUID) -> list[BlitzParticipant]:
         result = (
@@ -337,7 +374,7 @@ class BlitzService:
             .eq("blitz_id", str(blitz_id))
             .execute()
         )
-        return [BlitzParticipant(**r) for r in result.data]
+        return [BlitzParticipant(**r) for r in _rows(result)]
 
     async def get_checkins(self, blitz_id: UUID) -> list[BlitzCheckin]:
         result = (
@@ -347,7 +384,7 @@ class BlitzService:
             .order("posted_at")
             .execute()
         )
-        return [BlitzCheckin(**r) for r in result.data]
+        return [BlitzCheckin(**r) for r in _rows(result)]
 
     async def get_showcases(self, blitz_id: UUID) -> list[BlitzShowcase]:
         result = (
@@ -357,7 +394,7 @@ class BlitzService:
             .order("vote_count.desc")
             .execute()
         )
-        return [BlitzShowcase(**r) for r in result.data]
+        return [BlitzShowcase(**r) for r in _rows(result)]
 
     async def get_history(self, guild_id: str, limit: int = 10) -> list[BlitzSession]:
         result = (
@@ -369,7 +406,7 @@ class BlitzService:
             .limit(limit)
             .execute()
         )
-        return [BlitzSession(**r) for r in result.data]
+        return [BlitzSession(**r) for r in _rows(result)]
 
     async def member_blitz_count(self, member_id: UUID) -> int:
         result = (
@@ -379,4 +416,4 @@ class BlitzService:
             .eq("companion_blitz_sessions.status", "completed")
             .execute()
         )
-        return len(result.data)
+        return len(_rows(result))
