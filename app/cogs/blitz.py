@@ -8,6 +8,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from app import database
+from app.services.xp_service import XPService
+from app.services.badge_service import BadgeService
 from app.services.blitz_service import BlitzService
 from app.models.blitz import BlitzCreate
 from app.embeds.blitz_embed import *
@@ -17,9 +20,12 @@ SHOWCASE_GRACE_HOURS = 2
 
 
 class BlitzCog(commands.GroupCog, name="blitz"):
-    def __init__(self, bot: commands.Bot, blitz_svc: BlitzService):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.blitz_svc = blitz_svc
+        db = database.get_db()
+        xp = XPService(db)
+        badge = BadgeService(db, xp)
+        self.blitz_svc = BlitzService(db, xp, badge)
         super().__init__()
 
     @app_commands.command(name="start", description="Start a Tech Blitz for the team")
@@ -462,4 +468,4 @@ class BlitzCog(commands.GroupCog, name="blitz"):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(BlitzCog(bot, bot.services["blitz"]))
+    await bot.add_cog(BlitzCog(bot))

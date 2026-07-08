@@ -2,15 +2,16 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from app import database
 from app.services.project_service import ProjectService
 from app.embeds.project_embed import *
 from app.models.project import ProjectCreate
 
 
 class ProjectsCog(commands.GroupCog, name="project"):
-    def __init__(self, bot: commands.Bot, project_svc: ProjectService):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.project_svc = project_svc
+        self.project_svc = ProjectService(database.get_db())
         super().__init__()
 
     @app_commands.command(name="create", description="Create a new project")
@@ -116,4 +117,4 @@ class ProjectsCog(commands.GroupCog, name="project"):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(ProjectsCog(bot, bot.services["project"]))
+    await bot.add_cog(ProjectsCog(bot))
