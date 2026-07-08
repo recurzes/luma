@@ -5,6 +5,8 @@ This document summarizes bot features, how to use them, and the required argumen
 ## Core Features
 
 - Member registration and profiles, including GitHub username linking.
+- Per-server sign-out and per-feature DM notification preferences.
+- Personal messages labeled with the server they apply to (multi-server safe).
 - Ticket board with assignments, status updates, and XP rewards.
 - Daily standup collection via DM, with automated summaries and reminders.
 - XP, levels, streak tracking, and leaderboard posts.
@@ -14,25 +16,57 @@ This document summarizes bot features, how to use them, and the required argumen
 - GitHub webhook ingestion and event-driven updates in Discord.
 - Automated monitoring: stale ticket pings, stale PR pings, mood check-ins, tip-of-the-day posts.
 - Auto-provisioned channels under the "LumaBot" category.
+- In-Discord help via `/help` with sample command usage per group.
 
 ## Commands (Slash Commands)
 
 Notes:
-- Most commands require the user to be registered with `/member register`.
+- Most commands require the user to be registered with `/member register` in the current server.
+- Sign out with `/member signout` to stop DMs and command access in that server; rejoin with `/member register`.
+- Manage DM types with `/member notifications list`, `/member notifications off`, `/member notifications on`.
 - Some commands are restricted to Lead/Professor (enforced in code).
-- Commands with cooldowns include: `/board`, `/leaderboard`.
+- Commands with cooldowns include: `/ticket board`, `/xp leaderboard`.
+
+### Help
+
+- `/help`
+  - Purpose: list all command groups and passive DM features.
+  - Args: none.
+
+- `/help group:<name>`
+  - Purpose: show commands, descriptions, and sample usage for one group.
+  - Args:
+    - `group` (optional): e.g. `member`, `ticket`, `standup` (autocomplete available).
 
 ### General
 
-- `/ping`
+- `/bot ping`
   - Purpose: check latency, database reachability, and uptime.
   - Args: none.
 
 ### Members
 
 - `/member register`
-  - Purpose: register yourself as a member using your Discord role.
+  - Purpose: register or rejoin Luma in this server using your Discord role.
   - Args: none.
+
+- `/member signout`
+  - Purpose: sign out of Luma in this server (stops DMs and slash commands here).
+  - Args: none.
+
+- `/member notifications list`
+  - Purpose: show personal message preferences for this server.
+  - Args: none.
+
+- `/member notifications off <feature>`
+  - Purpose: opt out of a DM type.
+  - Args:
+    - `feature` (required): `standup`, `mood`, `journal`, `streak`, `track`, `blitz`, or `stuck`.
+
+- `/member notifications on <feature>`
+  - Purpose: re-enable a DM type.
+  - Args:
+    - `feature` (required): same choices as above.
 
 - `/member info [target]`
   - Purpose: show a member profile (defaults to you).
@@ -77,17 +111,19 @@ Notes:
   - Purpose: list your open tickets.
   - Args: none.
 
-- `/board`
+- `/ticket board`
   - Purpose: show the full ticket board grouped by status.
   - Args: none.
   - Cooldown: 30s per guild.
 
 ### Standups (Automated)
 
-- Daily standup DM prompts are sent automatically.
+- Daily standup DM prompts are sent automatically (weekday mornings).
+- Each DM is labeled with the server name (`📍 **Server Name**`).
 - Replies are collected in a 3-step flow (yesterday, today, blockers).
 - A compiled summary is posted to `#standup-log`.
 - Non-responders are pinged in `#standup-log` before the window closes.
+- Opt out: `/member notifications off feature:standup`.
 
 ### Phases
 
@@ -107,56 +143,56 @@ Notes:
 
 ### XP and Leaderboards
 
-- `/xp [target]`
+- `/xp show [target]`
   - Purpose: show XP, level, streak, and recent activity.
   - Args:
     - `target` (optional): Discord member to look up.
 
-- `/leaderboard`
+- `/xp leaderboard`
   - Purpose: show the XP leaderboard.
   - Args: none.
   - Cooldown: 30s per guild.
 
 ### Culture
 
-- `/shoutout <member> <reason>`
+- `/culture shoutout <member> <reason>`
   - Purpose: give a teammate a shoutout and post to `#shoutouts`.
   - Args:
     - `member` (required): Discord member to shout out.
     - `reason` (required): why they deserve it.
 
-- `/share <tip> [link]`
+- `/culture share <tip> [link]`
   - Purpose: share a tip/resource in `#resources`.
   - Args:
     - `tip` (required): the tip or resource text.
     - `link` (optional): a URL.
 
-- `/sprint_start <name> [days]`
+- `/culture sprint start <name> [days]`
   - Purpose: start a sprint challenge and announce in `#announcements`.
   - Args:
     - `name` (required): sprint name.
     - `days` (optional): duration in days (default 7).
   - Restricted: Lead/Professor only.
 
-- `/sprint_end`
+- `/culture sprint end`
   - Purpose: end the active sprint and post top performers.
   - Args: none.
   - Restricted: Lead/Professor only.
 
 ### Help and Pairing
 
-- `/stuck <problem>`
+- `/stuck open <problem>`
   - Purpose: open a help thread and start the 15-minute timer.
   - Args:
     - `problem` (required): brief description of what you are stuck on.
 
-- `/unstuck [helper]`
+- `/stuck unstuck [helper]`
   - Purpose: close a help thread and award XP to a helper.
   - Args:
     - `helper` (optional): Discord member who helped (defaults to caller).
   - Notes: must be run inside the help thread.
 
-- `/pair <dev1> <dev2> [topic]`
+- `/stuck pair <dev1> <dev2> [topic]`
   - Purpose: create a temporary pair programming text + voice channel.
   - Args:
     - `dev1` (required): first developer.
@@ -176,6 +212,20 @@ Notes:
 - `/review stats`
   - Purpose: show PR review counts per developer.
   - Args: none.
+
+## Personal Messages
+
+All scheduled DMs include the server name so you know which community they refer to.
+
+| Feature | Schedule | Opt-out feature key |
+|---------|----------|---------------------|
+| Standup | Weekdays 9:00 | `standup` |
+| Mood check-in | Monday 9:00 | `mood` |
+| Journal EOD prompt | Weekdays 17:00 | `journal` |
+| Streak risk / broken | Daily 20:00 / 23:50 | `streak` |
+| Track nudge | Monday 9:00 | `track` |
+| Blitz inactive | Every 8h | `blitz` |
+| Stuck escalation | On 30min stuck | `stuck` (leads only) |
 
 ## GitHub Integration (Webhooks + Automation)
 
@@ -209,3 +259,6 @@ The bot auto-creates a `LumaBot` category and the following text channels (if mi
 - `#help`, `#shoutouts`, `#announcements`, `#tip-of-the-day`
 - `#resources`, `#retro`, `#rankings`, `#general`
 
+## Database Migration
+
+Apply `app/migrations/010_enrollments_and_notifications.sql` before deploying. Existing members are backfilled into enrollments on bot startup.
