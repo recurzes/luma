@@ -285,7 +285,6 @@ class JournalCog(commands.GroupCog, name="journal"):
 
     @adr.error
     async def adr_error(
-            self,
             interaction: discord.Interaction,
             error: app_commands.AppCommandError
     ) -> None:

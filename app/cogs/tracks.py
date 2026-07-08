@@ -474,7 +474,6 @@ class TrackCog(commands.GroupCog, name="track"):
 
     @checkpoint.error
     async def checkpoint_error(
-            self,
             interaction: discord.Interaction,
             error: app_commands.AppCommandError
     ) -> None:
