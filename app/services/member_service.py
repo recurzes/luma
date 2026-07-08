@@ -135,3 +135,34 @@ class MemberService:
 
     async def exists(self, discord_id: str) -> bool:
         return await self.get_by_discord_id(discord_id) is not None
+
+    async def update_role_and_tier(
+            self,
+            discord_id: str,
+            role: str,
+            tier_max: str,
+            discord_name: str | None = None,
+    ) -> Member:
+        if role not in _VALID_ROLES:
+            raise ValueError(f"Invalid role: {role!r}. Must be one of {_VALID_ROLES}")
+        if tier_max not in _VALID_TIERS:
+            raise ValueError(f"Invalid tier_max: {tier_max!r}. Must be one of {_VALID_TIERS}")
+
+        payload: dict[str, str] = {"role": role, "tier_max": tier_max}
+        if discord_name is not None:
+            payload["discord_name"] = discord_name
+
+        def _update():
+            return (
+                self._db.table("bot_members")
+                .update(payload)
+                .eq("discord_id", discord_id)
+                .execute()
+            )
+
+        result = await asyncio.get_event_loop().run_in_executor(None, _update)
+        if not result.data:
+            raise ValueError(f"No member found with discord_id {discord_id!r}")
+
+        log.info("member.role_updated", discord_id=discord_id, role=role, tier_max=tier_max)
+        return self._parse(result.data[0])

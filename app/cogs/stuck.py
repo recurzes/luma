@@ -9,15 +9,17 @@ from discord import app_commands
 from discord.ext import commands
 
 from app import database
-from app.config import settings
+from app.services.enrollment_service import EnrollmentService
 from app.services.member_service import MemberService
+from app.services.notification_service import NotificationService
 from app.services.stuck_service import StuckService, _bumped_15
 from app.services.xp_service import XPService
+from app.utils.dm import send_notification_dm
 from app.utils.guards import require_member
 
 log = structlog.get_logger()
 
-_LEAD_PROFESSOR_CHECK = {"lead": "professor"}
+_LEAD_PROFESSOR_ROLES = {"lead", "professor"}
 
 
 class StuckCog(commands.GroupCog, name="stuck"):
@@ -184,7 +186,11 @@ class StuckCog(commands.GroupCog, name="stuck"):
                     "⚠️ **30 minutes stuck.** Escalating to Lead/Professor.",
                 )
 
-            await self._dm_leads(f"⚠️ **{thread.problem[:80]}** — dev has been stuck for 30+ min.\nThread: <#{thread.discord_thread_id}>")
+            await self._dm_leads(
+                f"⚠️ **{thread.problem[:80]}** — dev has been stuck for 30+ min.\n"
+                f"Thread: <#{thread.discord_thread_id}>",
+                int(thread.discord_thread_id) if thread.discord_thread_id else None,
+            )
 
         if threads_15 or threads_30:
             log.info("stuck_check.done", bumped=len(threads_15), escalated=len(threads_30))
@@ -197,15 +203,35 @@ class StuckCog(commands.GroupCog, name="stuck"):
         except (discord.NotFound, discord.Forbidden):
             pass
 
-    async def _dm_leads(self, message: str) -> None:
-        all_members = await MemberService(database.get_db()).get_all_active()
-        for m in all_members:
-            if m.role in _LEAD_PROFESSOR_CHECK:
-                try:
-                    user = await self.bot.fetch_user(int(m.discord_id))
-                    await user.send(message)
-                except (discord.Forbidden, discord.NotFound):
-                    pass
+    async def _dm_leads(self, message: str, thread_id: int | None) -> None:
+        if thread_id is None:
+            return
+
+        try:
+            channel = await self.bot.fetch_channel(thread_id)
+        except (discord.NotFound, discord.Forbidden):
+            return
+
+        if not isinstance(channel, discord.Thread) or channel.guild is None:
+            return
+
+        guild = channel.guild
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
+        targets = await enrollment_svc.get_dm_targets(str(guild.id))
+
+        for member in targets:
+            if member.role not in _LEAD_PROFESSOR_ROLES:
+                continue
+            await send_notification_dm(
+                self.bot,
+                discord_id=member.discord_id,
+                member_id=member.id,
+                guild=guild,
+                feature="stuck",
+                body=message,
+                notification_svc=notification_svc,
+            )
 
 
 async def _delete_pair_channels(text_id: int, vc_id: int, bot) -> None:

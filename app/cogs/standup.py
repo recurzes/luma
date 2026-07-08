@@ -9,10 +9,13 @@ from discord.ext import commands
 
 from app import database
 from app.embeds.standup_embed import build_standup_summary
+from app.services.enrollment_service import EnrollmentService
 from app.services.member_service import MemberService
+from app.services.notification_service import NotificationService
 from app.services.standup_service import StandupService
 from app.services.xp_service import XPService
 from app.utils.badge_broadcast import post_badges_to_shoutouts
+from app.utils.dm import send_notification_dm
 
 if TYPE_CHECKING:
     pass
@@ -99,31 +102,41 @@ class StandupCog(commands.Cog):
         log.info("job.standup_dm.start")
         svc = self._svc()
         session = await svc.get_or_create_today()
-        all_members = await MemberService(database.get_db()).get_all_active()
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
+        sent = 0
 
-        for member in all_members:
-            discord_id = int(member.discord_id)
-            if discord_id in _PENDING:
-                continue
+        for guild in self.bot.guilds:
+            targets = await enrollment_svc.get_dm_targets(str(guild.id))
+            for member in targets:
+                discord_id = int(member.discord_id)
+                if discord_id in _PENDING:
+                    continue
 
-            try:
-                user = await self.bot.fetch_user(discord_id)
-                await user.send(
-                    "☀️ **Good morning! Time for your daily standup.**\n\n" + _QUESTIONS[0]
-                )
-                _PENDING[discord_id] = {
-                    "session_id": str(session.id),
-                    "member_id": str(member.id),
-                    "stage": 0,
-                    "yesterday": None,
-                    "today": None,
-                    "blockers": None
-                }
-                log.info("standup.dm_sent", discord_id=discord_id)
-            except (discord.Forbidden, discord.NotFound):
-                log.warning("standup.dm_failed", discord_id=discord_id)
+                body = "☀️ **Good morning! Time for your daily standup.**\n\n" + _QUESTIONS[0]
+                if await send_notification_dm(
+                        self.bot,
+                        discord_id=member.discord_id,
+                        member_id=member.id,
+                        guild=guild,
+                        feature="standup",
+                        body=body,
+                        notification_svc=notification_svc,
+                ):
+                    _PENDING[discord_id] = {
+                        "session_id": str(session.id),
+                        "member_id": str(member.id),
+                        "guild_id": str(guild.id),
+                        "guild_name": guild.name,
+                        "stage": 0,
+                        "yesterday": None,
+                        "today": None,
+                        "blockers": None,
+                    }
+                    sent += 1
+                    log.info("standup.dm_sent", discord_id=discord_id, guild_id=guild.id)
 
-        log.info("job.standup_dm.done", members=len(all_members))
+        log.info("job.standup_dm.done", sent=sent)
 
     async def _standup_compile_job(self) -> None:
         log.info("job.standup_compile.start")
@@ -154,19 +167,33 @@ class StandupCog(commands.Cog):
         svc = self._svc()
         session = await svc.get_or_create_today()
         non_resp = await svc.non_responders(str(session.id))
+        non_resp_ids = {str(m.id) for m in non_resp}
 
-        if not non_resp:
+        if not non_resp_ids:
             return
 
-        mentions = " ".join(
-            f"<@{m.discord_id}>" for m in non_resp
-        )
-
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
         pinged = 0
+
         for guild in self.bot.guilds:
             channel = self.bot.get_text_channel("standup_log", guild)
             if not isinstance(channel, discord.TextChannel):
                 continue
+
+            targets = await enrollment_svc.get_dm_targets(str(guild.id))
+            guild_non_resp = []
+            for member in targets:
+                if str(member.id) not in non_resp_ids:
+                    continue
+                if not await notification_svc.is_enabled(member.id, str(guild.id), "standup"):
+                    continue
+                guild_non_resp.append(member)
+
+            if not guild_non_resp:
+                continue
+
+            mentions = " ".join(f"<@{m.discord_id}>" for m in guild_non_resp)
             await channel.send(
                 f"⏰ Standup reminder! Still waiting on: {mentions}\n"
                 "Reply to your standup DM or the window closes at 9:30 AM."

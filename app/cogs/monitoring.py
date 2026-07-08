@@ -10,7 +10,10 @@ from discord.ext import commands
 
 from app import database
 from app.config import settings
+from app.services.enrollment_service import EnrollmentService
 from app.services.member_service import MemberService
+from app.services.notification_service import NotificationService
+from app.utils.dm import format_dm, send_notification_dm
 
 log = structlog.get_logger()
 
@@ -266,22 +269,32 @@ class MonitoringCog(commands.Cog):
         _mood_state = {}
         _mood_prompt_by_msg = {}
 
-        members = await MemberService(database.get_db()).get_all_active()
-        for m in members:
-            try:
-                user = await self.bot.fetch_user(int(m.discord_id))
-                msg = await user.send(
-                    "**Monday Mood Check-in — How's your morale this week?\n**"
-                    "React with **1️⃣–5️⃣** below (rough → excellent), or reply with a number **1–5**."
-                )
-                for emoji in MOOD_REACTION_EMOJIS:
-                    await msg.add_reaction(emoji)
-                _mood_prompt_by_msg[msg.id] = int(m.discord_id)
-                _mood_state[int(m.discord_id)] = "pending"
-            except (discord.Forbidden, discord.NotFound):
-                pass
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
+        sent = 0
 
-        log.info("mood_checkin.dms_sent", count=len(members))
+        body = (
+            "**Monday Mood Check-in — How's your morale this week?**\n"
+            "React with **1️⃣–5️⃣** below (rough → excellent), or reply with a number **1–5**."
+        )
+
+        for guild in self.bot.guilds:
+            targets = await enrollment_svc.get_dm_targets(str(guild.id))
+            for member in targets:
+                if not await notification_svc.is_enabled(member.id, str(guild.id), "mood"):
+                    continue
+                try:
+                    user = await self.bot.fetch_user(int(member.discord_id))
+                    msg = await user.send(format_dm(guild.name, body))
+                    for emoji in MOOD_REACTION_EMOJIS:
+                        await msg.add_reaction(emoji)
+                    _mood_prompt_by_msg[msg.id] = int(member.discord_id)
+                    _mood_state[int(member.discord_id)] = "pending"
+                    sent += 1
+                except (discord.Forbidden, discord.NotFound):
+                    pass
+
+        log.info("mood_checkin.dms_sent", count=sent)
 
     async def _mood_aggregate_post(self) -> None:
         scores = [v for v in _mood_state.values() if isinstance(v, int)]

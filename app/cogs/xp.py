@@ -10,9 +10,12 @@ from sqlalchemy.ext.asyncio import result
 
 from app import database
 from app.embeds.leaderboard_embed import build_leaderboard_embed
+from app.services.enrollment_service import EnrollmentService
 from app.services.member_service import MemberService
+from app.services.notification_service import NotificationService
 from app.services.steak_service import StreakService
 from app.services.xp_service import XPService, compute_level, level_title
+from app.utils.dm import send_notification_dm
 from app.utils.guards import require_member
 
 log = structlog.get_logger()
@@ -104,46 +107,67 @@ class XPCog(commands.GroupCog, name="xp"):
         if not broken_ids:
             return
 
-        svc = MemberService(database.get_db())
+        member_svc = MemberService(database.get_db())
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
+        body = (
+            "💔 Your streak was reset — no qualifying activity was recorded today. "
+            "Start fresh tomorrow!"
+        )
+        sent = 0
+
         for member_id in broken_ids:
-            def _fetch(mid=member_id):
-                return (
-                    database.get_db()
-                    .table("bot_members")
-                    .select("discord_id")
-                    .eq("id", mid)
-                    .limit(1)
-                    .execute()
-                )
-
-            result = await asyncio.get_event_loop().run_in_executor(None, _fetch())
-            if not result.data:
+            member = await member_svc.get_by_id(str(member_id))
+            if member is None:
                 continue
-            discord_id = int(result.data[0]["discord_id"])
-            try:
-                user = await self.bot.fetch_user(discord_id)
-                await user.send(
-                    "💔 Your streak was reset — no qualifying activity was recorded today. "
-                    "Start fresh tomorrow!"
-                )
-            except (discord.Forbidden, discord.NotFound):
-                pass
 
-        log.info("job.streak_check.done", broken=len(broken_ids))
+            enrollments = await enrollment_svc.get_active_enrollments_for_member(member.id)
+            for enrollment in enrollments:
+                guild = self.bot.get_guild(int(enrollment.guild_id))
+                if guild is None:
+                    continue
+                if await send_notification_dm(
+                        self.bot,
+                        discord_id=member.discord_id,
+                        member_id=member.id,
+                        guild=guild,
+                        feature="streak",
+                        body=body,
+                        notification_svc=notification_svc,
+                ):
+                    sent += 1
+
+        log.info("job.streak_check.done", broken=len(broken_ids), sent=sent)
 
     async def _streak_risk_dm_job(self) -> None:
         log.info("job.streak_risk_dm.start")
         at_risk = await self._streak_service().at_risk_members()
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
+        body = (
+            "🔥 Your streak is at risk — no activity recorded yet today. "
+            "Close a ticket, push a commit, or respond to standup to keep it alive!"
+        )
+        sent = 0
+
         for member in at_risk:
-            try:
-                user = await self.bot.fetch_user(int(member.discord_id))
-                await user.send(
-                    "🔥 Your streak is at risk — no activity recorded yet today. "
-                    "Close a ticket, push a commit, or respond to standup to keep it alive!"
-                )
-            except (discord.Forbidden, discord.NotFound):
-                pass
-        log.info("job.streak_risk_dm.done", at_risk=len(at_risk))
+            enrollments = await enrollment_svc.get_active_enrollments_for_member(member.id)
+            for enrollment in enrollments:
+                guild = self.bot.get_guild(int(enrollment.guild_id))
+                if guild is None:
+                    continue
+                if await send_notification_dm(
+                        self.bot,
+                        discord_id=member.discord_id,
+                        member_id=member.id,
+                        guild=guild,
+                        feature="streak",
+                        body=body,
+                        notification_svc=notification_svc,
+                ):
+                    sent += 1
+
+        log.info("job.streak_risk_dm.done", at_risk=len(at_risk), sent=sent)
 
 
 async def setup(bot: commands.Bot) -> None:
