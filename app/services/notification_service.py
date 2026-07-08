@@ -51,7 +51,7 @@ class NotificationService:
             raise ValueError(f"Unknown notification feature: {feature!r}")
         pref = await self._get_preference(member_id, guild_id, feature)
         if pref is None:
-            return True
+            return False
         return pref.enabled
 
     async def set_enabled(
@@ -123,4 +123,4 @@ class NotificationService:
 
         result = await self._run(_fetch)
         stored = {row["feature"]: row["enabled"] for row in result.data}
-        return {feature: stored.get(feature, True) for feature in NOTIFICATION_FEATURES}
+        return {feature: stored.get(feature, False) for feature in NOTIFICATION_FEATURES}
