@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 NOTIFICATION_FEATURES: dict[str, str] = {
-    "standup": "Daily standup DMs",
+    "standup": "Daily standup",
     "mood": "Monday mood check-in",
     "journal": "End-of-day journal prompts",
     "streak": "Streak risk and broken streak alerts",
