@@ -16,9 +16,10 @@ from app.services.xp_service import XPService
 from app.utils.dm import send_notification_dm
 from app.services.badge_service import BadgeService
 from app.services.blitz_service import BlitzService
-from app.models.blitz import BlitzCreate
+from app.models.blitz import BlitzCreate, BlitzParticipant
 from app.embeds.blitz_embed import *
 from app.embeds.blitz_embed import _countdown_bar, _remaining_str
+from app.utils.guards import require_member
 
 SHOWCASE_GRACE_HOURS = 2
 
@@ -31,6 +32,19 @@ class BlitzCog(commands.GroupCog, name="blitz"):
         badge = BadgeService(db, xp)
         self.blitz_svc = BlitzService(db, xp, badge)
         super().__init__()
+
+    def _member_svc(self) -> MemberService:
+        return MemberService(database.get_db())
+
+    async def _participant_mention(self, member_id: UUID) -> str:
+        member = await self._member_svc().get_by_id(str(member_id))
+        if member:
+            return f"<@{member.discord_id}>"
+        return f"`{str(member_id)[:8]}`"
+
+    async def _participant_mentions(self, participants: list[BlitzParticipant]) -> str:
+        mentions = [await self._participant_mention(p.member_id) for p in participants]
+        return " ".join(mentions)
 
     @app_commands.command(name="start", description="Start a Tech Blitz for the team")
     @app_commands.describe(
@@ -68,6 +82,11 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             deliverable_type: str = "any",
             duration_hours: int = 48
     ):
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
         await interaction.response.defer()
 
         if duration_hours < 1 or duration_hours > 168:
@@ -81,7 +100,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             session = await self.blitz_svc.create(
                 BlitzCreate(
                     guild_id=str(interaction.guild_id),
-                    created_by=UUID(str(interaction.user.id)),
+                    created_by=member.id,
                     technology=technology,
                     tech_category=tech_category,
                     goal=goal,
@@ -107,6 +126,11 @@ class BlitzCog(commands.GroupCog, name="blitz"):
 
     @app_commands.command(name="join", description="Join the active Tech Blitz")
     async def blitz_join(self, interaction: discord.Interaction):
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
         await interaction.response.defer(ephemeral=True)
 
         session = await self.blitz_svc.get_active(str(interaction.guild_id))
@@ -115,7 +139,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             return
 
         try:
-            await self.blitz_svc.join(session.id, UUID(str(interaction.user.id)))
+            await self.blitz_svc.join(session.id, member.id)
         except ValueError as e:
             await interaction.followup.send(f"{e}", ephemeral=True)
             return
@@ -151,6 +175,11 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             mood: int = None,
             media_url: str = None
     ):
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
         await interaction.response.defer()
 
         session = await self.blitz_svc.get_active(str(interaction.guild_id))
@@ -161,7 +190,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
         try:
             checkin = await self.blitz_svc.checkin(
                 session.id,
-                UUID(str(interaction.user.id)),
+                member.id,
                 content=update,
                 media_url=media_url,
                 mood=mood
@@ -194,6 +223,11 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             demo_url: str = None,
             media_url: str = None
     ):
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
         await interaction.response.defer()
 
         session = await self.blitz_svc.get_active(str(interaction.guild_id))
@@ -204,7 +238,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
         try:
             showcase = await self.blitz_svc.submit_showcase(
                 session.id,
-                UUID(str(interaction.user.id)),
+                member.id,
                 title=title,
                 description=description,
                 repo_url=repo_url,
@@ -248,7 +282,8 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             count = checkin_counts.get(str(p.member_id), 0)
             has_showcase = any(str(s.member_id) == str(p.member_id) for s in showcases)
             status_icon = "🏁" if has_showcase else ("📣" if count > 0 else "⏳")
-            lines.append(f"{status_icon} <@{p.member_id}> - {count} check-in{'s' if count != 1 else ''}")
+            mention = await self._participant_mention(p.member_id)
+            lines.append(f"{status_icon} {mention} - {count} check-in{'s' if count != 1 else ''}")
 
         embed.add_field(
             name=f"Team ({len(participants)} participants)",
@@ -391,7 +426,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
                     await channel.send(embed=announce_embed)
 
                     participants = await self.blitz_svc.get_participants(session.id)
-                    mentions = " ".join(f"<@{p.member_id}>" for p in participants)
+                    mentions = await self._participant_mentions(participants)
                     if mentions:
                         await channel.send(
                             f"{mentions}\n"
@@ -422,7 +457,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
 
                     if milestone == "1h_left":
                         participants = await self.blitz_svc.get_participants(session.id)
-                        mentions = " ".join(f"<@{p.member_id}>" for p in participants)
+                        mentions = await self._participant_mentions(participants)
                         if mentions:
                             await channel.send(f"{mentions} - **1 hour left on the blitz!**")
 
