@@ -35,6 +35,10 @@ class MemberCog(commands.GroupCog, name="member"):
         name="notifications",
         description="Manage personal message preferences for this server",
     )
+    feature = app_commands.Group(
+        name="feature",
+        description="Join or leave optional bot features for this server",
+    )
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -98,7 +102,7 @@ class MemberCog(commands.GroupCog, name="member"):
         embed.add_field(name="Name", value=member.discord_name, inline=True)
         embed.add_field(name="Role", value=member.role.capitalize(), inline=True)
         embed.add_field(name="Max Tier", value=member.tier_max, inline=True)
-        embed.set_footer(text="Link GitHub with /member github · Manage DMs with /member notifications list")
+        embed.set_footer(text="Link GitHub with /member github · Join features with /member feature join <feature>")
 
         log.info("member.register.success", discord_id=str(interaction.user.id), role=role, guild_id=guild_id)
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -157,7 +161,7 @@ class MemberCog(commands.GroupCog, name="member"):
             description="\n".join(lines),
             color=discord.Color.blurple(),
         )
-        embed.set_footer(text="Use /member notifications off <feature> or /member notifications on <feature>")
+        embed.set_footer(text="Use /member feature join <feature> or /member notifications off <feature>")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @notifications.command(name="off", description="Opt out of a personal message type")
@@ -211,6 +215,87 @@ class MemberCog(commands.GroupCog, name="member"):
         )
         await interaction.followup.send(
             f"Enabled **{NOTIFICATION_FEATURES[feature.value]}** for **{interaction.guild.name}**.",
+            ephemeral=True,
+        )
+
+    @feature.command(name="list", description="Show which features you have joined on this server")
+    async def feature_list(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send("This command must be used inside the server.", ephemeral=True)
+            return
+
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
+        prefs = await self._notifications().list_preferences(member.id, str(interaction.guild_id))
+
+        lines = [
+            f"{'✅' if enabled else '⬜'} **{NOTIFICATION_FEATURES[key]}** (`{key}`)"
+            for key, enabled in prefs.items()
+        ]
+        embed = discord.Embed(
+            title=f"Features — {interaction.guild.name}",
+            description="\n".join(lines),
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text="Use /member feature join <feature> or /member feature leave <feature>")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @feature.command(name="join", description="Join a feature on this server")
+    @app_commands.describe(feature="Which feature to join")
+    @app_commands.choices(feature=_FEATURE_CHOICES)
+    async def feature_join(
+            self,
+            interaction: discord.Interaction,
+            feature: app_commands.Choice[str],
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send("This command must be used inside the server.", ephemeral=True)
+            return
+
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
+        await self._notifications().set_enabled(
+            member.id, str(interaction.guild_id), feature.value, True
+        )
+        await interaction.followup.send(
+            f"Joined **{NOTIFICATION_FEATURES[feature.value]}** on **{interaction.guild.name}**.",
+            ephemeral=True,
+        )
+
+    @feature.command(name="leave", description="Leave a feature on this server")
+    @app_commands.describe(feature="Which feature to leave")
+    @app_commands.choices(feature=_FEATURE_CHOICES)
+    async def feature_leave(
+            self,
+            interaction: discord.Interaction,
+            feature: app_commands.Choice[str],
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        if interaction.guild is None:
+            await interaction.followup.send("This command must be used inside the server.", ephemeral=True)
+            return
+
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+
+        await self._notifications().set_enabled(
+            member.id, str(interaction.guild_id), feature.value, False
+        )
+        await interaction.followup.send(
+            f"Left **{NOTIFICATION_FEATURES[feature.value]}** on **{interaction.guild.name}**.",
             ephemeral=True,
         )
 

@@ -319,14 +319,16 @@ class JournalCog(commands.GroupCog, name="journal"):
         sent = 0
 
         for guild in self.bot.guilds:
-            targets = await enrollment_svc.get_dm_targets(str(guild.id))
+            targets = await enrollment_svc.get_feature_targets(
+                str(guild.id), "journal", notification_svc
+            )
             for member in targets:
                 project = await project_svc.get_active_project(member.id)
                 project_name = project.name if project else "your project"
                 body = (
                     f"**End of day!** What did you build or learn today on **{project_name}**?\n\n"
                     f"Use `/journal entry` to save it. Optional mood: `/journal entry content:... mood:4`.\n"
-                    f"Use `/member notifications off journal` to stop these prompts."
+                    f"Use `/member feature leave journal` to stop these prompts."
                 )
                 if await send_notification_dm(
                         self.bot,

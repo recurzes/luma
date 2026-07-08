@@ -107,7 +107,9 @@ class StandupCog(commands.Cog):
         sent = 0
 
         for guild in self.bot.guilds:
-            targets = await enrollment_svc.get_dm_targets(str(guild.id))
+            targets = await enrollment_svc.get_feature_targets(
+                str(guild.id), "standup", notification_svc
+            )
             for member in targets:
                 discord_id = int(member.discord_id)
                 if discord_id in _PENDING:
@@ -143,15 +145,26 @@ class StandupCog(commands.Cog):
         svc = self._svc()
         session = await svc.get_or_create_today()
         responses = await svc.get_responses(str(session.id))
-        non_resp = await svc.non_responders(str(session.id))
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
 
-        all_members = await MemberService(database.get_db()).get_all_active()
-        member_map = {str(m.id): m.discord_name for m in all_members}
-
-        embed = build_standup_summary(session, responses, non_resp, member_map)
-
+        responded_ids = {str(r.member_id) for r in responses}
         posted = 0
+
         for guild in self.bot.guilds:
+            targets = await enrollment_svc.get_feature_targets(
+                str(guild.id), "standup", notification_svc
+            )
+            if not targets:
+                continue
+
+            target_ids = {str(m.id) for m in targets}
+            guild_responses = [r for r in responses if str(r.member_id) in target_ids]
+            guild_non_resp = [m for m in targets if str(m.id) not in responded_ids]
+            member_map = {str(m.id): m.discord_name for m in targets}
+
+            embed = build_standup_summary(session, guild_responses, guild_non_resp, member_map)
+
             channel = self.bot.get_text_channel("standup_log", guild)
             if isinstance(channel, discord.TextChannel):
                 await channel.send(embed=embed)
@@ -166,11 +179,8 @@ class StandupCog(commands.Cog):
         log.info("job.standup_nag.start")
         svc = self._svc()
         session = await svc.get_or_create_today()
-        non_resp = await svc.non_responders(str(session.id))
-        non_resp_ids = {str(m.id) for m in non_resp}
-
-        if not non_resp_ids:
-            return
+        responses = await svc.get_responses(str(session.id))
+        responded_ids = {str(r.member_id) for r in responses}
 
         enrollment_svc = EnrollmentService(database.get_db())
         notification_svc = NotificationService(database.get_db())
@@ -181,14 +191,10 @@ class StandupCog(commands.Cog):
             if not isinstance(channel, discord.TextChannel):
                 continue
 
-            targets = await enrollment_svc.get_dm_targets(str(guild.id))
-            guild_non_resp = []
-            for member in targets:
-                if str(member.id) not in non_resp_ids:
-                    continue
-                if not await notification_svc.is_enabled(member.id, str(guild.id), "standup"):
-                    continue
-                guild_non_resp.append(member)
+            targets = await enrollment_svc.get_feature_targets(
+                str(guild.id), "standup", notification_svc
+            )
+            guild_non_resp = [m for m in targets if str(m.id) not in responded_ids]
 
             if not guild_non_resp:
                 continue
