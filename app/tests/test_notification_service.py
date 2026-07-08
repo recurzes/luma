@@ -63,10 +63,10 @@ def _mock_db(rows: list[dict] | None = None):
 
 
 @pytest.mark.asyncio
-async def test_is_enabled_default_true():
+async def test_is_enabled_default_false():
     db, chain, _ = _mock_db(rows=[])
     service = NotificationService(db)
-    assert await service.is_enabled(MEMBER_ID, GUILD_ID, "standup") is True
+    assert await service.is_enabled(MEMBER_ID, GUILD_ID, "standup") is False
 
 
 @pytest.mark.asyncio
@@ -105,13 +105,13 @@ async def test_set_enabled_creates_preference():
 
 
 @pytest.mark.asyncio
-async def test_list_preferences_defaults_all_enabled():
+async def test_list_preferences_defaults_all_disabled():
     db, chain, _ = _mock_db(rows=[])
     service = NotificationService(db)
     prefs = await service.list_preferences(MEMBER_ID, GUILD_ID)
 
-    assert prefs["standup"] is True
-    assert prefs["mood"] is True
+    assert prefs["standup"] is False
+    assert prefs["mood"] is False
     assert len(prefs) == 7
 
 
@@ -122,4 +122,4 @@ async def test_list_preferences_merges_stored():
     prefs = await service.list_preferences(MEMBER_ID, GUILD_ID)
 
     assert prefs["standup"] is False
-    assert prefs["journal"] is True
+    assert prefs["journal"] is False

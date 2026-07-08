@@ -11,6 +11,7 @@ from supabase import Client
 
 from app.models.enrollment import EnrollmentCreate, MemberEnrollment
 from app.models.member import Member
+from app.services.notification_service import NotificationService
 
 log = structlog.get_logger()
 
@@ -133,31 +134,16 @@ class EnrollmentService:
                 members.append(self._parse_member(member_data))
         return members
 
-    async def backfill_guild(self, guild_id: str, guild_name: str) -> int:
-        """Create enrollments for members missing one in this guild (startup backfill)."""
+    async def get_feature_targets(
+            self,
+            guild_id: str,
+            feature: str,
+            notification_svc: NotificationService,
+    ) -> list[Member]:
+        members = await self.get_dm_targets(guild_id)
+        enabled: list[Member] = []
+        for member in members:
+            if await notification_svc.is_enabled(member.id, guild_id, feature):
+                enabled.append(member)
+        return enabled
 
-        def _fetch_members():
-            return self._db.table("bot_members").select("id").execute()
-
-        def _fetch_enrolled():
-            return (
-                self._db.table("bot_member_enrollments")
-                .select("member_id")
-                .eq("guild_id", guild_id)
-                .execute()
-            )
-
-        members_result = await self._run(_fetch_members)
-        enrolled_result = await self._run(_fetch_enrolled)
-        enrolled_ids = {row["member_id"] for row in enrolled_result.data}
-
-        created = 0
-        for row in members_result.data:
-            if row["id"] in enrolled_ids:
-                continue
-            await self.enroll(UUID(row["id"]), guild_id, guild_name)
-            created += 1
-
-        if created:
-            log.info("enrollment.backfill", guild_id=guild_id, created=created)
-        return created

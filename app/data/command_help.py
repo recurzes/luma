@@ -56,12 +56,13 @@ COMMAND_GROUPS: dict[str, GroupHelp] = {
     "member": GroupHelp(
         key="member",
         title="Members",
-        summary="Registration, profiles, sign-out, and DM notification preferences.",
+        summary="Registration, profiles, sign-out, and per-feature opt-in.",
         commands=(
             CommandHelp(
                 name="register",
                 description="Register or rejoin Luma in this server.",
                 usage="/member register",
+                notes="Does not auto-join features — use /member feature join after registering.",
             ),
             CommandHelp(
                 name="signout",
@@ -69,18 +70,33 @@ COMMAND_GROUPS: dict[str, GroupHelp] = {
                 usage="/member signout",
             ),
             CommandHelp(
+                name="feature list",
+                description="Show which features you have joined on this server.",
+                usage="/member feature list",
+            ),
+            CommandHelp(
+                name="feature join",
+                description="Join a feature (standup, mood, journal, streak, track, blitz, stuck).",
+                usage="/member feature join feature:standup",
+            ),
+            CommandHelp(
+                name="feature leave",
+                description="Leave a feature on this server.",
+                usage="/member feature leave feature:standup",
+            ),
+            CommandHelp(
                 name="notifications list",
-                description="Show personal message preferences for this server.",
+                description="Show feature/message preferences (alias for feature list).",
                 usage="/member notifications list",
             ),
             CommandHelp(
                 name="notifications off",
-                description="Opt out of a DM type (standup, mood, journal, streak, track, blitz, stuck).",
+                description="Disable a feature (alias for feature leave).",
                 usage="/member notifications off feature:standup",
             ),
             CommandHelp(
                 name="notifications on",
-                description="Re-enable a DM type.",
+                description="Enable a feature (alias for feature join).",
                 usage="/member notifications on feature:journal",
             ),
             CommandHelp(

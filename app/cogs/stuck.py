@@ -218,7 +218,9 @@ class StuckCog(commands.GroupCog, name="stuck"):
         guild = channel.guild
         enrollment_svc = EnrollmentService(database.get_db())
         notification_svc = NotificationService(database.get_db())
-        targets = await enrollment_svc.get_dm_targets(str(guild.id))
+        targets = await enrollment_svc.get_feature_targets(
+            str(guild.id), "stuck", notification_svc
+        )
 
         for member in targets:
             if member.role not in _LEAD_PROFESSOR_ROLES:

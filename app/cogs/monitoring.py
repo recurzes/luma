@@ -279,10 +279,10 @@ class MonitoringCog(commands.Cog):
         )
 
         for guild in self.bot.guilds:
-            targets = await enrollment_svc.get_dm_targets(str(guild.id))
+            targets = await enrollment_svc.get_feature_targets(
+                str(guild.id), "mood", notification_svc
+            )
             for member in targets:
-                if not await notification_svc.is_enabled(member.id, str(guild.id), "mood"):
-                    continue
                 try:
                     user = await self.bot.fetch_user(int(member.discord_id))
                     msg = await user.send(format_dm(guild.name, body))

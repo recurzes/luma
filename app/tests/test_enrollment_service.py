@@ -23,7 +23,7 @@ os.environ.setdefault("CHANNEL_RANKINGS", "12")
 os.environ.setdefault("CHANNEL_GENERAL", "13")
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -163,3 +163,28 @@ async def test_get_dm_targets_returns_members():
 
     assert len(members) == 1
     assert members[0].discord_id == "123456789"
+
+
+@pytest.mark.asyncio
+async def test_get_feature_targets_filters_by_notification():
+    db, chain, _ = _mock_db(rows=[{"bot_members": MEMBER_ROW}])
+    service = EnrollmentService(db)
+    notification_svc = MagicMock()
+    notification_svc.is_enabled = AsyncMock(return_value=True)
+
+    members = await service.get_feature_targets(GUILD_ID, "standup", notification_svc)
+
+    assert len(members) == 1
+    notification_svc.is_enabled.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_feature_targets_excludes_disabled():
+    db, chain, _ = _mock_db(rows=[{"bot_members": MEMBER_ROW}])
+    service = EnrollmentService(db)
+    notification_svc = MagicMock()
+    notification_svc.is_enabled = AsyncMock(return_value=False)
+
+    members = await service.get_feature_targets(GUILD_ID, "standup", notification_svc)
+
+    assert members == []
