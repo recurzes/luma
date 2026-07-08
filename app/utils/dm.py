@@ -5,7 +5,10 @@ from uuid import UUID
 import discord
 
 from app.services.notification_service import NotificationService
-from app.utils.dm import format_dm
+
+
+def format_dm(guild_name: str, body: str) -> str:
+    return f"📍 **{guild_name}**\n\n{body}"
 
 
 async def send_notification_dm(
