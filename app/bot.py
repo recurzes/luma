@@ -133,17 +133,6 @@ class LumaBot(commands.AutoShardedBot):
         )
         if not db_ok:
             log.warning("supabase.unreachable", hint="Apply migrations before using bot features")
-        else:
-            await self._backfill_enrollments()
-
-    async def _backfill_enrollments(self) -> None:
-        from app.services.enrollment_service import EnrollmentService
-
-        svc = EnrollmentService(database.get_db())
-        for guild in self.guilds:
-            created = await svc.backfill_guild(str(guild.id), guild.name)
-            if created:
-                log.info("enrollment.backfill.done", guild_id=guild.id, created=created)
 
     async def _github_event_poll_loop(self) -> None:
         global _last_event_poll
