@@ -9,7 +9,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from app import database
+from app.services.enrollment_service import EnrollmentService
+from app.services.member_service import MemberService
+from app.services.notification_service import NotificationService
 from app.services.xp_service import XPService
+from app.utils.dm import send_notification_dm
 from app.services.badge_service import BadgeService
 from app.services.blitz_service import BlitzService
 from app.models.blitz import BlitzCreate
@@ -452,6 +456,13 @@ class BlitzCog(commands.GroupCog, name="blitz"):
                 if c.posted_at and c.posted_at > cutoff
             }
 
+            guild = self.bot.get_guild(int(session.guild_id))
+            if guild is None:
+                continue
+
+            notification_svc = NotificationService(database.get_db())
+            member_svc = MemberService(database.get_db())
+
             for p in participants:
                 mid_str = str(p.member_id)
                 if mid_str in showcase_member_ids:
@@ -459,12 +470,24 @@ class BlitzCog(commands.GroupCog, name="blitz"):
                 if mid_str in recent_member_ids:
                     continue
 
-                try:
-                    user = self.bot.get_user(int(p.member_id)) or await self.bot.fetch_user(int(p.member_id))
-                    embed = blitz_nudge_embed(session)
-                    await user.send(embed=embed)
-                except discord.Forbidden:
-                    pass
+                member = await member_svc.get_by_id(mid_str)
+                if member is None:
+                    continue
+
+                embed = blitz_nudge_embed(session)
+                body = embed.description or "Time to check in on your blitz progress!"
+                if embed.title:
+                    body = f"**{embed.title}**\n{body}"
+
+                await send_notification_dm(
+                    self.bot,
+                    discord_id=member.discord_id,
+                    member_id=member.id,
+                    guild=guild,
+                    feature="blitz",
+                    body=body,
+                    notification_svc=notification_svc,
+                )
 
 
 async def setup(bot: commands.Bot):

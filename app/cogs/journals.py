@@ -10,8 +10,11 @@ from uuid import UUID
 
 from app import database
 from app.models.journal import JournalEntryCreate
+from app.services.enrollment_service import EnrollmentService
 from app.services.journal_service import JournalService
+from app.services.notification_service import NotificationService
 from app.services.project_service import ProjectService
+from app.utils.dm import send_notification_dm
 from app.services.xp_service import XPService
 from app.embeds.journal_embed import *
 from app.utils.guards import require_member
@@ -310,30 +313,33 @@ class JournalCog(commands.GroupCog, name="journal"):
 
     # Scheduled Jobs
     async def _send_eod_journal_prompts(self):
-        members_result = self.db.table("bot_members").select("id, discord_id").execute()
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
+        project_svc = ProjectService(database.get_db())
+        sent = 0
 
-        for row in members_result.data:
-            member_id = UUID(row["id"])
-            discord_id = int(row["discord_id"])
-
-            project = await self._project_svc().get_active_project(member_id)
-            project_name = project.name if project else "your project"
-
-            user = self.bot.get_user(discord_id)
-            if not user:
-                try:
-                    user = await self.bot.fetch_user(discord_id)
-                except discord.NotFound:
-                    continue
-
-            try:
-                await user.send(
-                    f"**End of day!** What did you build or learn today on **{project_name}**\n\n"
-                    f"Reply here and I'll save it. Add a mood with `/journal mood 1-5`.\n"
-                    f"*(Skip this? Just ignore it)*"
+        for guild in self.bot.guilds:
+            targets = await enrollment_svc.get_dm_targets(str(guild.id))
+            for member in targets:
+                project = await project_svc.get_active_project(member.id)
+                project_name = project.name if project else "your project"
+                body = (
+                    f"**End of day!** What did you build or learn today on **{project_name}**?\n\n"
+                    f"Use `/journal entry` to save it. Optional mood: `/journal entry content:... mood:4`.\n"
+                    f"Use `/member notifications off journal` to stop these prompts."
                 )
-            except discord.Forbidden:
-                pass
+                if await send_notification_dm(
+                        self.bot,
+                        discord_id=member.discord_id,
+                        member_id=member.id,
+                        guild=guild,
+                        feature="journal",
+                        body=body,
+                        notification_svc=notification_svc,
+                ):
+                    sent += 1
+
+        log.info("journal.eod_prompts.sent", count=sent)
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -9,7 +9,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from app import database
+from app.services.enrollment_service import EnrollmentService
+from app.services.member_service import MemberService
+from app.services.notification_service import NotificationService
 from app.services.track_service import TrackService
+from app.utils.dm import format_dm
 from app.services.badge_service import BadgeService
 from app.services.xp_service import XPService
 from app.embeds.track_embed import *
@@ -111,7 +115,8 @@ class TrackCog(commands.GroupCog, name="track"):
                     f"\nWhen ready: `/track checkpoint done {str(next_cp.id)[:8]}`"
                     + (" `answer: your answer`" if next_cp.answer_hash else "")
                 )
-                await interaction.user.send("\n".join(lines))
+                guild_name = interaction.guild.name if interaction.guild else "Luma"
+                await interaction.user.send(format_dm(guild_name, "\n".join(lines)))
             except discord.Forbidden:
                 pass
 
@@ -263,7 +268,8 @@ class TrackCog(commands.GroupCog, name="track"):
                     f"\nWhen ready: `/track checkpoint done {str(next_cp.id)[:8]}`"
                     + (" `answer: your answer`" if next_cp.answer_hash else "")
                 )
-                await interaction.user.send("\n".join(lines))
+                guild_name = interaction.guild.name if interaction.guild else "Luma"
+                await interaction.user.send(format_dm(guild_name, "\n".join(lines)))
             except discord.Forbidden:
                 pass
 
@@ -404,6 +410,9 @@ class TrackCog(commands.GroupCog, name="track"):
     async def _monday_nudge_job(self) -> None:
         svc = self._svc()
         db = database.get_db()
+        enrollment_svc = EnrollmentService(database.get_db())
+        notification_svc = NotificationService(database.get_db())
+        member_svc = MemberService(db)
 
         stale = await svc.get_stale_enrollments(inactive_days=7)
         if not stale:
@@ -416,20 +425,8 @@ class TrackCog(commands.GroupCog, name="track"):
             if not member_id or not track_id:
                 continue
 
-            mem_res = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda mid=member_id: (
-                    db.table("bot_members")
-                    .select("discord_id")
-                    .eq("id", mid)
-                    .maybe_single()
-                    .execute()
-                ),
-            )
-            if not mem_res.data:
-                continue
-            discord_id: str | None = mem_res.data.get("discord_id")
-            if not discord_id:
+            member = await member_svc.get_by_id(member_id)
+            if member is None:
                 continue
 
             track_res = await asyncio.get_event_loop().run_in_executor(
@@ -443,32 +440,40 @@ class TrackCog(commands.GroupCog, name="track"):
                 ),
             )
             track_name = track_res.data["name"] if track_res.data else "your track"
-
             next_cp = await svc.get_next_checkpoint(UUID(member_id), UUID(track_id))
 
-            try:
-                user = await self.bot.fetch_user(int(discord_id))
-                lines = [
-                    f"Hey! You haven't made progress on **{track_name}** in a while.",
-                    "Ready to pick it back up?",
-                ]
-                if next_cp:
-                    lines.append(f"\nNext checkpoint: **{next_cp.title}**")
-                    if next_cp.resource_url:
-                        lines.append(f"📖 {next_cp.resource_url}")
-                    if next_cp.exercise:
-                        lines.append(f"🔨 {next_cp.exercise}")
-                    lines.append(
-                        f"\nRun `/track checkpoint done {str(next_cp.id)[:8]}`"
-                        + (" `answer: your answer`" if next_cp.answer_hash else "")
-                        + " when ready."
-                    )
-                else:
-                    lines.append("\nRun `/track progress` to see where you left off.")
-                await user.send("\n".join(lines))
-                nudged += 1
-            except (discord.Forbidden, discord.NotFound):
-                pass
+            lines = [
+                f"Hey! You haven't made progress on **{track_name}** in a while.",
+                "Ready to pick it back up?",
+            ]
+            if next_cp:
+                lines.append(f"\nNext checkpoint: **{next_cp.title}**")
+                if next_cp.resource_url:
+                    lines.append(f"📖 {next_cp.resource_url}")
+                if next_cp.exercise:
+                    lines.append(f"🔨 {next_cp.exercise}")
+                lines.append(
+                    f"\nRun `/track checkpoint done {str(next_cp.id)[:8]}`"
+                    + (" `answer: your answer`" if next_cp.answer_hash else "")
+                    + " when ready."
+                )
+            else:
+                lines.append("\nRun `/track progress` to see where you left off.")
+
+            body = "\n".join(lines)
+            enrollments = await enrollment_svc.get_active_enrollments_for_member(member.id)
+            for enrollment in enrollments:
+                guild = self.bot.get_guild(int(enrollment.guild_id))
+                if guild is None:
+                    continue
+                if not await notification_svc.is_enabled(member.id, str(guild.id), "track"):
+                    continue
+                try:
+                    user = await self.bot.fetch_user(int(member.discord_id))
+                    await user.send(format_dm(guild.name, body))
+                    nudged += 1
+                except (discord.Forbidden, discord.NotFound):
+                    pass
 
         log.info("track_nudge.sent", nudged=nudged)
 
