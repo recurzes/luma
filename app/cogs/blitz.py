@@ -448,7 +448,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
                         await channel.send(embed=gallery)
                 continue
 
-            pending = self.blitz_svc.calculate_pending_milestones(session)
+            pending = await self.blitz_svc.calculate_pending_milestones(session)
             for milestone in pending:
                 fired = await self.blitz_svc.mark_milestone(session.id, milestone)
                 if fired and channel:
