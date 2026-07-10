@@ -328,29 +328,33 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             await interaction.followup.send("No active blitz", ephemeral=True)
             return
 
-        participants = await self.blitz_svc.get_participants(session.id)
-        showcases = await self.blitz_svc.get_showcases(session.id)
-
-        await self.blitz_svc.complete(session.id)
-
-        embed = blitz_gallery_embed(session, showcases, len(participants))
-        await interaction.followup.send(embed=embed)
-
+        try:
+            participants = await self.blitz_svc.get_participants(session.id)
+            showcases = await self.blitz_svc.get_showcases(session.id)
+            await self.blitz_svc.complete(session.id)
+            embed = blitz_gallery_embed(session, showcases, len(participants))
+            await interaction.followup.send(embed=embed)
+        except ValueError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
 
     @app_commands.command(name="cancel", description="Cancel the active blitz (no XP awarded)")
     @app_commands.checks.has_any_role("Lead", "Professor")
     async def blitz_cancel(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
 
         session = await self.blitz_svc.get_active(str(interaction.guild_id))
         if not session:
             await interaction.followup.send("No active blitz", ephemeral=True)
             return
 
-        await self.blitz_svc.cancel(session.id)
-        await interaction.followup.send(
-            f"**{session.technology}** blitz cancelled", ephemeral=True
-        )
+        try:
+            await self.blitz_svc.cancel(session.id)
+            await interaction.followup.send(
+                f"**{session.technology}** blitz cancelled",
+                ephemeral=True,
+            )
+        except ValueError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
 
 
     @app_commands.command(name="countdown", description="Show the current blitz countdown")
@@ -399,15 +403,16 @@ class BlitzCog(commands.GroupCog, name="blitz"):
 
     async def cog_group_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.errors.MissingAnyRole):
-            await interaction.response.send_message(
-                "Only Lead or Professor can use this command", ephemeral=True
-            )
+            msg = "Only Lead or Professor can use this command"
         else:
             import structlog
             structlog.get_logger().error("blitz_command_error", error=str(error))
-            await interaction.response.send_message(
-                "Something went wrong. Try again or ping the Lead", ephemeral=True
-            )
+            msg = "Something went wrong. Try again or ping the Lead"
+
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
 
 
     # Scheduled Jobs
@@ -422,7 +427,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
                 updated = await self.blitz_svc.transition_to_showcase(session.id)
 
                 if channel:
-                    announce_embed = blitz_showcase_embed(updated)
+                    announce_embed = blitz_showcase_open_embed(updated)
                     await channel.send(embed=announce_embed)
 
                     participants = await self.blitz_svc.get_participants(session.id)

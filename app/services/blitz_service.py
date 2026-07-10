@@ -122,7 +122,7 @@ class BlitzService:
         for p in participants:
             mid = p.member_id
             if str(mid) in showcase_member_ids:
-                await self.xp_svc.award(str(mid), "blitz_complete", {"xp": 50})
+                await self.xp_svc.award(str(mid), "blitz_complete")
 
         result = (
             self.db.table("companion_blitz_sessions")
@@ -137,6 +137,8 @@ class BlitzService:
         if row is None:
             raise ValueError("Failed to complete blitz session")
         return BlitzSession(**row)
+
+    async def cancel(self, blitz_id: UUID) -> BlitzSession:
         now = datetime.now(timezone.utc)
         result = (
             self.db.table("companion_blitz_sessions")
@@ -151,6 +153,8 @@ class BlitzService:
         if row is None:
             raise ValueError("Failed to cancel blitz session")
         return BlitzSession(**row)
+
+    # Participation
     async def join(self, blitz_id: UUID, member_id: UUID) -> BlitzParticipant:
         existing = await self.is_participant(blitz_id, member_id)
         if existing:
