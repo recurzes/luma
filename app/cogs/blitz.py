@@ -401,20 +401,6 @@ class BlitzCog(commands.GroupCog, name="blitz"):
         await interaction.followup.send(embed=embed)
 
 
-    async def cog_group_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        if isinstance(error, app_commands.errors.MissingAnyRole):
-            msg = "Only Lead or Professor can use this command"
-        else:
-            import structlog
-            structlog.get_logger().error("blitz_command_error", error=str(error))
-            msg = "Something went wrong. Try again or ping the Lead"
-
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
-
-
     # Scheduled Jobs
     async def _blitz_tick(self):
         sessions = await self.blitz_svc.get_all_active()

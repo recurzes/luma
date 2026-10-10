@@ -286,31 +286,6 @@ class JournalCog(commands.GroupCog, name="journal"):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-    @adr.error
-    async def adr_error(
-            interaction: discord.Interaction,
-            error: app_commands.AppCommandError
-    ) -> None:
-        log.error("journal_command_error", error=str(error))
-        msg = "Something went wrong. Try again or ping the Lead"
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
-
-    async def cog_group_error(
-            self,
-            interaction: discord.Interaction,
-            error: app_commands.AppCommandError
-    ) -> None:
-        log.error("journal_command_error", error=str(error))
-        msg = "Something went wrong. Try again or ping the Lead"
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
-
-
     # Scheduled Jobs
     async def _send_eod_journal_prompts(self):
         enrollment_svc = EnrollmentService(database.get_db())
@@ -327,7 +302,7 @@ class JournalCog(commands.GroupCog, name="journal"):
                 project_name = project.name if project else "your project"
                 body = (
                     f"**End of day!** What did you build or learn today on **{project_name}**?\n\n"
-                    f"Use `/journal entry` to save it. Optional mood: `/journal entry content:... mood:4`.\n"
+                    f"Use `/journal entry` to save it. Optional mood: `/journal entry text:... mood:4`.\n"
                     f"Use `/member feature leave journal` to stop these prompts."
                 )
                 if await send_notification_dm(

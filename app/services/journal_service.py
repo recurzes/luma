@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import os
 from uuid import UUID
-from datetime import datetime, timezone, date, timedelta
+from datetime import datetime, timezone, timedelta
 
 from supabase import Client
 
+from app.config import settings
 from app.models.journal import JournalEntry, JournalEntryCreate, ADR
 from app.services.xp_service import XPService
+from app.utils.time import start_of_today
 import anthropic
 
 
@@ -15,7 +16,7 @@ class JournalService:
     def __init__(self, db: Client, xp_svc: XPService):
         self.db = db
         self.xp_svc = xp_svc
-        self._ai_enabled = os.getenv("COMPANION_AI_ENABLED", "false").lower() == "true"
+        self._ai_enabled = settings.COMPANION_AI_ENABLED
 
 
     # Entries
@@ -36,10 +37,10 @@ class JournalService:
 
         today_count = await self._entry_count_today(payload.member_id)
         if today_count == 1:
-            await self.xp_svc.award(payload.member_id, "journal_entry", 5)
+            await self.xp_svc.award(str(payload.member_id), "journal_entry")
 
         if payload.mood:
-            await self.xp_svc.award(payload.member_id, "journal_mood", 2)
+            await self.xp_svc.award(str(payload.member_id), "journal_mood")
 
         return entry
 
@@ -96,20 +97,20 @@ class JournalService:
         )
         adr = ADR(**addr_result.data[0])
 
-        await self.xp_svc.award(member_id, "journal_adr", 15)
+        await self.xp_svc.award(str(member_id), "journal_adr")
         return entry, adr
 
 
     # Queries
 
     async def get_today(self, member_id: UUID, project_id: UUID | None = None) -> list[JournalEntry]:
-        today = date.today().isoformat()
+        start = start_of_today()
         query = (
             self.db.table("companion_journal_entries")
             .select("*")
             .eq("member_id", str(member_id))
-            .gte("created_at", f"{today}T00:00:00")
-            .lt("created_at", f"{today}T23:59:59")
+            .gte("created_at", start.isoformat())
+            .lt("created_at", (start + timedelta(days=1)).isoformat())
             .order("created_at")
         )
         if project_id:
@@ -174,7 +175,7 @@ class JournalService:
 
 
     async def _ai_synthesis(self, entries: list[JournalEntry], adrs: list[ADR]) -> str:
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY or None)
         entries_text = "\n\n".join(
             f"[{e.created_at.strftime('%b %d')}] ({e.entry_type}) {e.content}"
             for e in entries
@@ -228,12 +229,11 @@ class JournalService:
 
     # Helpers
     async def _entry_count_today(self, member_id: UUID) -> int:
-        today = date.today().isoformat()
         result = (
             self.db.table("companion_journal_entries")
             .select("id", count="exact")
             .eq("member_id", str(member_id))
-            .gte("created_at", f"{today}:T00:00:00")
+            .gte("created_at", start_of_today().isoformat())
             .execute()
         )
         return result.count or 0

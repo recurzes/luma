@@ -135,11 +135,12 @@ def _register_monitoring_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoSha
         replace_existing=True
     )
 
+    # 10:00, not 09:00: the standup DM goes out at 09:00 and both flows read DM replies.
     scheduler.add_job(
         cog._mood_checkin_dm,
         "cron",
         day_of_week="mon",
-        hour=9,
+        hour=10,
         minute=0,
         id="mood_checkin_dm",
         replace_existing=True

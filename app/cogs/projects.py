@@ -6,6 +6,7 @@ from app import database
 from app.services.project_service import ProjectService
 from app.embeds.project_embed import *
 from app.models.project import ProjectCreate
+from app.utils.guards import require_member
 
 
 class ProjectsCog(commands.GroupCog, name="project"):
@@ -37,6 +38,10 @@ class ProjectsCog(commands.GroupCog, name="project"):
             description: str = ""
     ):
         await interaction.response.defer()
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
         project = await self.project_svc.create(
             ProjectCreate(
                 name=name,
@@ -44,7 +49,7 @@ class ProjectsCog(commands.GroupCog, name="project"):
                 description=description,
                 guild_id=str(interaction.guild_id)
             ),
-            creator_id=interaction.user.id
+            creator_id=member.id
         )
         embed = project_info_embed(project)
         embed.set_footer(text="Active project set automatically")
@@ -64,12 +69,16 @@ class ProjectsCog(commands.GroupCog, name="project"):
     @app_commands.describe(name="Project name to switch to")
     async def switch(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
-        projects = await self.project_svc.list_active(str(interaction.guild.id))
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+        projects = await self.project_svc.list_active(str(interaction.guild_id))
         match = next((p for p in projects if p.name.lower() == name.lower()), None)
         if not match:
             await interaction.followup.send(f"No active project named **{name}**.", ephemeral=True)
             return
-        await self.project_svc.set_active_project(interaction.user.id, match.id)
+        await self.project_svc.set_active_project(member.id, match.id)
         await interaction.followup.send(
             f"Active project set to **{match.name}**. All `/ticket` and `/phase` commands now target this project",
             ephemeral=True
@@ -91,15 +100,19 @@ class ProjectsCog(commands.GroupCog, name="project"):
     @app_commands.describe(name="Project name (omit to use active project)")
     async def info(self, interaction: discord.Interaction, name: str = ""):
         await interaction.response.defer()
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
         if name:
             projects = await self.project_svc.list_active(str(interaction.guild_id))
             project = next((p for p in projects if p.name.lower() == name.lower()), None)
         else:
-            project = await self.project_svc.resolve_active_or_abort(
-                interaction.user.id,
-                interaction
-            )
+            project = await self.project_svc.resolve_active_or_abort(member.id, interaction)
+            if not project:
+                return
         if not project:
+            await interaction.followup.send(f"No active project named **{name}**", ephemeral=True)
             return
         embed = project_info_embed(project)
         await interaction.followup.send(embed=embed)
@@ -109,7 +122,11 @@ class ProjectsCog(commands.GroupCog, name="project"):
     @app_commands.describe(url="GitHub repository URL")
     async def link_repo(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(ephemeral=True)
-        project = await self.project_svc.resolve_active_or_abort(interaction.user.id, interaction)
+        try:
+            member = await require_member(interaction)
+        except RuntimeError:
+            return
+        project = await self.project_svc.resolve_active_or_abort(member.id, interaction)
         if not project:
             return
         await self.project_svc.link_repo(project.id, url)
