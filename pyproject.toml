@@ -20,5 +20,10 @@ dependencies = [
     "structlog>=25.5.0",
     "supabase>=2.29.0",
     "python-dateutil>=2.9.0",
+    "tzdata>=2025.2",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["app/tests"]
 

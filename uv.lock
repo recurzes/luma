@@ -1125,6 +1125,7 @@ dependencies = [
     { name = "sqlmodel" },
     { name = "structlog" },
     { name = "supabase" },
+    { name = "tzdata" },
 ]
 
 [package.metadata]
@@ -1144,6 +1145,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.38" },
     { name = "structlog", specifier = ">=25.5.0" },
     { name = "supabase", specifier = ">=2.29.0" },
+    { name = "tzdata", specifier = ">=2025.2" },
 ]
 
 [[package]]
