@@ -9,6 +9,9 @@ from app.config import settings
 
 
 def verify_github_signature(payload: bytes, sig_header: str | None) -> bool:
+    # An empty key would make the HMAC computable by anyone.
+    if not settings.GITHUB_WEBHOOK_SECRET:
+        return False
     if not sig_header or not sig_header.startswith("sha256="):
         return False
 

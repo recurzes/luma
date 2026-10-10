@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta, timezone
 import structlog
 from supabase import Client
 
+from app.utils.time import today as local_today
+
 from app.models.member import Member
 from app.services.member_service import MemberService
 
@@ -21,7 +23,7 @@ class StreakService:
         return await asyncio.get_event_loop().run_in_executor(None, fn)
 
     async def record_activity(self, member_id: str, activity: str) -> None:
-        today = date.today().isoformat()
+        today = local_today().isoformat()
 
         def _check():
             return (
@@ -83,7 +85,7 @@ class StreakService:
         log.info("streak.recorded", member_id=member_id, new_streak=new_current)
 
     async def check_all_streaks(self) -> list[str]:
-        today = date.today().isoformat()
+        today = local_today().isoformat()
         broken: list[str] = []
 
         all_members = await self._members.get_all_active()
@@ -127,7 +129,7 @@ class StreakService:
         return broken
 
     async def at_risk_members(self) -> list[Member]:
-        today = date.today().isoformat()
+        today = local_today().isoformat()
         all_members = await self._members.get_all_active()
         at_risk: list[Member] = []
 

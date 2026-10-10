@@ -225,7 +225,7 @@ class BadgeService:
             )
 
         result = await self._run(_count)
-        return (result.data or 0) >= 3
+        return (result.count or 0) >= 3
 
     def _check_clutch_coder(self, ticket: dict) -> bool:
         deadline = ticket.get("deadline")

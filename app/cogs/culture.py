@@ -61,7 +61,7 @@ class CultureCog(commands.GroupCog, name="culture"):
 
         await xp.award(str(sender.id), "shoutout_given")
         if receiver:
-            await xp.award(str(sender.id), "shoutout_recv")
+            await xp.award(str(receiver.id), "shoutout_recv")
 
         shoutouts_channel = self.bot.get_text_channel("shoutouts", interaction.guild)
 

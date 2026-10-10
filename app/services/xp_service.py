@@ -32,6 +32,9 @@ _XP_MAP: dict[str, int] = {
     "blitz_showcase": 25,
     "blitz_complete": 50,
     "blitz_first_in": 5,
+    "journal_entry": 5,
+    "journal_mood": 2,
+    "journal_adr": 15,
 }
 
 _LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1400, 2000]

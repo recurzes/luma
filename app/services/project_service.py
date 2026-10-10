@@ -68,10 +68,12 @@ class ProjectService:
     ) -> "Project | None":
         project = await self.get_active_project(member_id)
         if not project:
-            await interaction.followup.send(
-                "No active project set. Use `/project switch <name>` or `/project create` first.",
-                ephemeral=True
-            )
+            msg = "No active project set. Use `/project switch <name>` or `/project create` first."
+            # Callers differ: /ticket create has not responded yet, most others have deferred.
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
             return None
         return project
 

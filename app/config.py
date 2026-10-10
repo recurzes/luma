@@ -1,5 +1,7 @@
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 def _default_dev_tips() -> list[str]:
@@ -60,6 +62,14 @@ class Settings(BaseSettings):
 
     # Optional
     DEBUG: bool = Field(default=False, description="Enable verbose/pretty logging")
+    TIMEZONE: str = Field(
+        default="UTC",
+        description="IANA timezone for scheduled jobs and day boundaries, e.g. Asia/Manila",
+    )
+
+    # Companion AI (journal sprint summary)
+    COMPANION_AI_ENABLED: bool = Field(default=False, description="Use Anthropic for /journal summary")
+    ANTHROPIC_API_KEY: str = Field(default="", description="Required when COMPANION_AI_ENABLED is true")
 
     # Discord role names
     DISCORD_ROLE_LEAD: str = Field(default="Lead", description="Discord role name for the lead developer")
@@ -76,5 +86,22 @@ class Settings(BaseSettings):
         ],
         description="File path prefixes that trigger the T3 file guard warning",
     )
+
+    @field_validator("TIMEZONE")
+    @classmethod
+    def _valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"Unknown timezone {value!r}; use an IANA name like Asia/Manila") from exc
+        return value
+
+    def require(self, *names: str) -> None:
+        """Fail fast when a setting the calling process needs is empty."""
+        missing = [n for n in names if not getattr(self, n)]
+        if missing:
+            raise RuntimeError(
+                f"Missing required setting(s): {', '.join(missing)}. Set them in .env (see .env.example)"
+            )
 
 settings = Settings()

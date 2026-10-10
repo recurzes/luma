@@ -355,11 +355,17 @@ class GitHubService:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
                     f"https://api.github.com/repos/{repo_full}/pulls/{pr_number}/files",
-                    headers={"Authorization": f"toke {settings.GITHUB_TOKEN}",
+                    headers={"Authorization": f"token {settings.GITHUB_TOKEN}",
                              "Accept": "application/vnd.github.v3+json"}
                 )
                 if resp.status_code == 200:
                     return resp.json()
+                log.warning(
+                    "github.fetch_pr_files.bad_status",
+                    status=resp.status_code,
+                    repo=repo_full,
+                    pr_number=pr_number
+                )
         except Exception as e:
             log.warning("github.fetch_pr_files.error", error=str(e))
 

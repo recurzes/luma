@@ -46,7 +46,7 @@ class LumaBot(commands.AutoShardedBot):
         intents.message_content = True
 
         super().__init__(command_prefix="!", intents=intents, help_command=None)
-        self.scheduler = AsyncIOScheduler()
+        self.scheduler = AsyncIOScheduler(timezone=settings.TIMEZONE)
 
         self.guild: discord.Guild | None = None
         self.channels: dict[tuple[int, str], int] = {}
@@ -249,32 +249,43 @@ class LumaBot(commands.AutoShardedBot):
             interaction: discord.Interaction,
             error: app_commands.AppCommandError
     ) -> None:
+        # Subclasses first: all of these except the last are CheckFailures.
         if isinstance(error, app_commands.CommandOnCooldown):
             msg = f"Slow down! Try again in **{error.retry_after:.0f}s**"
+        elif isinstance(error, app_commands.MissingAnyRole):
+            roles = " or ".join(str(r) for r in error.missing_roles)
+            msg = f"Only {roles} can use this command"
+        elif isinstance(error, app_commands.BotMissingPermissions):
+            msg = "I'm missing Discord permissions to do that"
         elif isinstance(error, app_commands.CheckFailure):
             msg = "You don't have permission to use this command"
-        elif isinstance(error, app_commands.MissingPermissions):
-            msg = "I'm missing Discord permissions to do that"
         else:
+            original = getattr(error, "original", error)
             log.error(
                 "app_command.error",
-                command=interaction.command and interaction.command.name,
-                error=str(error)
+                command=interaction.command and interaction.command.qualified_name,
+                error_type=type(original).__name__,
+                error=str(original)
             )
-            msg = "Service temporarily unavailable. Please try again"
+            msg = "Something went wrong. Try again or ping the Lead"
 
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
             else:
-                await interaction.response.send_response(msg, ephemeral=True)
-        except Exception:
-            pass
+                await interaction.response.send_message(msg, ephemeral=True)
+        except discord.HTTPException as e:
+            log.warning("app_command.error_reply_failed", error=str(e))
 
 
 async def main() -> None:
     _configure_logging()
-    if not settings.DISCORD_TOKEN or settings.DISCORD_TOKEN == "place_holder_set_before_running_bot":
+    try:
+        settings.require("DISCORD_TOKEN", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
+    except RuntimeError as e:
+        log.error("config.invalid", error=str(e))
+        sys.exit(1)
+    if settings.DISCORD_TOKEN == "place_holder_set_before_running_bot":
         log.error("DISCORD_TOKEN is not set. Set it in .env before running the bot")
         sys.exit(1)
     bot = LumaBot()

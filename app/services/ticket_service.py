@@ -117,6 +117,8 @@ class TicketService:
             row["deadline"] = payload.deadline.isoformat()
         if created_by_id:
             row["created_by"] = created_by_id
+        if payload.project_id:
+            row["project_id"] = str(payload.project_id)
 
         def _insert():
             return self._db.table("bot_tickets").insert(row).execute()

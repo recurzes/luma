@@ -9,6 +9,7 @@ import structlog
 from discord.ext import commands
 
 from app import database
+from app.cogs.standup import has_pending_standup
 from app.config import settings
 from app.services.enrollment_service import EnrollmentService
 from app.services.member_service import MemberService
@@ -82,6 +83,9 @@ class MonitoringCog(commands.Cog):
 
         user_id = message.author.id
         if user_id not in _mood_state or _mood_state[user_id] != "pending":
+            return
+        # A DM sent mid-standup is a standup answer, not a mood score.
+        if has_pending_standup(user_id):
             return
 
         content = message.content.strip()

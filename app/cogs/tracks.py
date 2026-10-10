@@ -477,38 +477,6 @@ class TrackCog(commands.GroupCog, name="track"):
 
         log.info("track_nudge.sent", nudged=nudged)
 
-    @checkpoint.error
-    async def checkpoint_error(
-            interaction: discord.Interaction,
-            error: app_commands.AppCommandError
-    ) -> None:
-        if isinstance(error, app_commands.errors.MissingAnyRole):
-            msg = "Only Lead or Professor can use this command."
-        else:
-            log.error("track_command_error", error=str(error))
-            msg = "Something went wrong. Try again or ping the Lead"
-
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
-
-    async def cog_group_error(
-            self,
-            interaction: discord.Interaction,
-            error: app_commands.AppCommandError
-    ) -> None:
-        if isinstance(error, app_commands.errors.MissingAnyRole):
-            msg = "Only Lead or Professor can use this command."
-        else:
-            log.error("track_command_error", error=str(error))
-            msg = "Something went wrong. Try again or ping the Lead"
-
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
-
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(TrackCog(bot))

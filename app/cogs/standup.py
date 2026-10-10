@@ -31,6 +31,11 @@ _QUESTIONS = [
 ]
 
 
+def has_pending_standup(user_id: int) -> bool:
+    """True while the user is mid-standup, so other DM listeners leave their replies alone."""
+    return user_id in _PENDING
+
+
 class StandupCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -57,7 +62,7 @@ class StandupCog(commands.Cog):
         content = message.content.strip()
 
         if stage == 0:
-            stage["yesterday"] = content
+            state["yesterday"] = content
             state["stage"] = 1
             await message.channel.send(_QUESTIONS[1])
 
@@ -202,7 +207,7 @@ class StandupCog(commands.Cog):
             mentions = " ".join(f"<@{m.discord_id}>" for m in guild_non_resp)
             await channel.send(
                 f"⏰ Standup reminder! Still waiting on: {mentions}\n"
-                "Reply to your standup DM or the window closes at 9:30 AM."
+                "The 9:30 summary is already posted, but replying to your standup DM still logs it."
             )
             pinged += 1
 

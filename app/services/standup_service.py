@@ -6,6 +6,8 @@ from datetime import date, datetime, timezone
 import structlog
 from supabase import Client
 
+from app.utils.time import today as local_today
+
 from app.models.badge import Badge
 from app.models.member import Member
 from app.models.standup import StandupResponse, StandupSession
@@ -39,7 +41,7 @@ class StandupService:
         return StandupResponse.model_validate(data)
 
     async def open_session(self) -> StandupSession:
-        today = date.today().isoformat()
+        today = local_today().isoformat()
 
         def _insert():
             return (
@@ -52,7 +54,7 @@ class StandupService:
         return self._parse_session(result.data[0])
 
     async def get_or_create_today(self) -> StandupSession:
-        today = date.today().isoformat()
+        today = local_today().isoformat()
 
         def _fetch():
             return (
