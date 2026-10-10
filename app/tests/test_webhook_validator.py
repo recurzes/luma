@@ -64,3 +64,10 @@ def test_malformed_header_returns_false():
 
 def test_empty_header_returns_false():
     assert verify_github_signature(PAYLOAD, "") is False
+
+
+def test_empty_secret_rejects_matching_signature(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "GITHUB_WEBHOOK_SECRET", "")
+    assert verify_github_signature(PAYLOAD, _make_sig(PAYLOAD, secret="")) is False

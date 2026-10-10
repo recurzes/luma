@@ -94,8 +94,9 @@ async def test_get_or_create_creates_when_missing():
 
 async def test_save_response_returns_response():
     svc, _, xp_svc = _make_svc()
-    response = await svc.save_response(SESSION_ID, MEMBER_ID, "old work", "new work", "none")
-    assert response.session_id.hex.replace("-", "") in RESPONSE_ROW["session_id"].replace("-", "")
+    response, badges = await svc.save_response(SESSION_ID, MEMBER_ID, "old work", "new work", "none")
+    assert str(response.session_id) == RESPONSE_ROW["session_id"]
+    assert isinstance(badges, list)
 
 
 async def test_save_response_awards_xp():
