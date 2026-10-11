@@ -4,7 +4,6 @@ import asyncio
 import pkgutil
 import time
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 import discord
@@ -27,8 +26,6 @@ log = structlog.get_logger()
 load_dotenv()
 
 _start_time = time.monotonic()
-
-_last_event_poll: str = datetime.now(timezone.utc).isoformat()
 
 
 def _configure_logging() -> None:
@@ -135,18 +132,16 @@ class LumaBot(commands.AutoShardedBot):
             log.warning("supabase.unreachable", hint="Apply migrations before using bot features")
 
     async def _github_event_poll_loop(self) -> None:
-        global _last_event_poll
+        # Guild channels are not cached before on_ready, and events may be waiting from downtime.
+        await self.wait_until_ready()
         log.info("github.poll_loop.started")
 
         while not self.is_closed():
             await asyncio.sleep(5)
-            cutoff = _last_event_poll
             try:
-                result = await self._fetch_github_events(cutoff)
-
-                if result.data:
-                    _last_event_poll = result.data[-1]["received_at"]
-                    await self._dispatch_github_events(result.data)
+                processed, failed = await self._github_service().process_pending()
+                if processed or failed:
+                    log.info("github.poll_loop.batch", processed=processed, failed=failed)
 
             except APIError as e:
                 err = e.args[0] if e.args else {}
@@ -155,34 +150,11 @@ class LumaBot(commands.AutoShardedBot):
                     code=err.get("code"),
                     message=err.get("message"),
                     details=err.get("details"),
-                    cutoff=cutoff,
                 )
             except Exception as e:
-                log.error("github.poll_loop.error", error=str(e), cutoff=cutoff)
+                log.error("github.poll_loop.error", error=str(e))
 
-    async def _fetch_github_events(self, cutoff: str):
-        def _fetch():
-            return (
-                database.get_db()
-                .table("bot_github_events")
-                .select("*")
-                .gt("received_at", cutoff)
-                .order("received_at", desc=False)
-                .limit(50)
-                .execute()
-            )
-
-        try:
-            return await asyncio.get_event_loop().run_in_executor(None, _fetch)
-        except APIError as e:
-            err = e.args[0] if e.args else {}
-            code = err.get("code")
-            if code in (555, "555") or str(code).startswith("5"):
-                await asyncio.sleep(3)
-                return await asyncio.get_event_loop().run_in_executor(None, _fetch)
-            raise
-
-    async def _dispatch_github_events(self, events: list[dict]) -> None:
+    def _github_service(self):
         from app.services.github_service import GitHubService
         from app.services.member_service import MemberService
         from app.services.steak_service import StreakService
@@ -190,12 +162,9 @@ class LumaBot(commands.AutoShardedBot):
 
         db = database.get_db()
         members = MemberService(db)
-        xp = XPService(db)
-        streak = StreakService(db, members)
-        svc = GitHubService(db=db, members=members, xp=xp, streak=streak, bot=self)
-
-        for event in events:
-            await svc.dispatch(event)
+        return GitHubService(
+            db=db, members=members, xp=XPService(db), streak=StreakService(db, members), bot=self
+        )
 
 
     async def on_guild_join(self, guild: discord.Guild) -> None:

@@ -9,7 +9,7 @@ from app.models.track import *
 from app.services.xp_service import XPService
 from app.services.badge_service import BadgeService
 from app.utils.short_id import parse_short_id, parse_uuid
-from app.utils.db import row_or_none
+from app.utils.db import row_or_none, run_query
 
 from datetime import datetime, timezone, timedelta
 
@@ -28,13 +28,12 @@ class TrackService:
         if existing:
             return existing
 
-        result = (
+        result = await run_query(
             self.db.table("companion_member_track_progress")
             .insert({
                 "member_id": str(member_id),
                 "track_id": str(track_id)
             })
-            .execute()
         )
         await self.badge_svc.check_and_award(str(member_id), trigger_event="track_enroll_first")
         return TrackProgress(**result.data[0])
@@ -54,13 +53,12 @@ class TrackService:
         if not progress:
             raise ValueError("You are not enrolled in this track")
 
-        already = (
+        already = await run_query(
             self.db.table("companion_checkpoint_completions")
             .select("id")
             .eq("member_id", str(member_id))
             .eq("checkpoint_id", str(checkpoint_id))
             .maybe_single()
-            .execute()
         )
         if row_or_none(already):
             raise ValueError("Checkpoint already completed")
@@ -76,10 +74,10 @@ class TrackService:
                 "Use `/track checkpoint done [id] answer:[your answer]`"
             )
 
-        self.db.table("companion_checkpoint_completions").insert({
+        await run_query(self.db.table("companion_checkpoint_completions").insert({
             "member_id": str(member_id),
             "checkpoint_id": str(checkpoint_id)
-        }).execute()
+        }))
 
         new_count = (progress.checkpoints_done or 0) + 1
         total = await self._total_checkpoints(checkpoint.track_id)
@@ -89,9 +87,9 @@ class TrackService:
         if pct == 100:
             update_payload["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-        self.db.table("companion_member_track_progress").update(
+        await run_query(self.db.table("companion_member_track_progress").update(
             update_payload
-        ).eq("member_id", str(member_id)).eq("track_id", str(checkpoint.track_id)).execute()
+        ).eq("member_id", str(member_id)).eq("track_id", str(checkpoint.track_id)))
 
         metadata = {"checkpoint_id": str(checkpoint_id)}
         result = await self.xp_svc.award(
@@ -113,55 +111,50 @@ class TrackService:
 
     # Queries
     async def list_tracks(self) -> list[Track]:
-        result = (
+        result = await run_query(
             self.db.table("companion_tracks")
             .select("*")
             .order("is_builtin.desc, name")
-            .execute()
         )
         return [Track(**r) for r in result.data]
 
 
     async def get_progress(self, member_id: UUID, track_id: UUID) -> TrackProgress | None:
-        result = (
+        result = await run_query(
             self.db.table("companion_member_track_progress")
             .select("*")
             .eq("member_id", str(member_id))
             .eq("track_id", str(track_id))
             .maybe_single()
-            .execute()
         )
         row = row_or_none(result)
         return TrackProgress(**row) if row else None
 
 
     async def get_checkpoint(self, checkpoint_id: UUID) -> Checkpoint | None:
-        result = (
+        result = await run_query(
             self.db.table("companion_track_checkpoints")
             .select("*")
             .eq("id", str(checkpoint_id))
             .maybe_single()
-            .execute()
         )
         row = row_or_none(result)
         return Checkpoint(**row) if row else None
 
 
     async def get_next_checkpoint(self, member_id: UUID, track_id: UUID) -> Checkpoint | None:
-        done_ids = (
+        done_ids = await run_query(
             self.db.table("companion_checkpoint_completions")
             .select("checkpoint_id")
             .eq("member_id", str(member_id))
-            .execute()
         )
         done_set = {r["checkpoint_id"] for r in done_ids.data}
 
-        checkpoints = (
+        checkpoints = await run_query(
             self.db.table("companion_track_checkpoints")
             .select("*")
             .eq("track_id", str(track_id))
             .order("sequence")
-            .execute()
         )
         for cp in checkpoints.data:
             if cp["id"] not in done_set:
@@ -182,21 +175,19 @@ class TrackService:
         if short_id is None:
             return None
 
-        enrolled = (
+        enrolled = await run_query(
             self.db.table("companion_member_track_progress")
             .select("track_id")
             .eq("member_id", str(member_id))
-            .execute()
         )
         track_ids = [r["track_id"] for r in enrolled.data]
         if not track_ids:
             return None
 
-        checkpoints = (
+        checkpoints = await run_query(
             self.db.table("companion_track_checkpoints")
             .select("*")
             .in_("track_id", track_ids)
-            .execute()
         )
         matches = [cp for cp in checkpoints.data if cp["id"].lower().startswith(short_id)]
         if len(matches) > 1:
@@ -206,15 +197,14 @@ class TrackService:
 
     async def get_stale_enrollments(self, inactive_days: int = 7) -> list[dict]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=inactive_days)).isoformat()
-        result = self.db.rpc("get_stale_track_enrollments", {"cutoff": cutoff}).execute()
+        result = await run_query(self.db.rpc("get_stale_track_enrollments", {"cutoff": cutoff}))
         return result.data
 
 
     async def _total_checkpoints(self, track_id: UUID) -> int:
-        result = (
+        result = await run_query(
             self.db.table("companion_track_checkpoints")
             .select("id", count="exact")
             .eq("track_id", str(track_id))
-            .execute()
         )
         return result.count or 1

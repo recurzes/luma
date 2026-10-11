@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 import structlog
 from supabase import Client
 
-from app.utils.time import today as local_today
+from app.utils.time import previous_working_day, today as local_today
 
 from app.models.member import Member
 from app.services.member_service import MemberService
@@ -39,6 +39,20 @@ class StreakService:
         if existing.data:
             return
 
+        def _last_active_day():
+            return (
+                self._db.table("bot_streak_log")
+                .select("streak_date")
+                .eq("member_id", member_id)
+                .lt("streak_date", today)
+                .order("streak_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+        previous = await self._run(_last_active_day)
+        last_day = date.fromisoformat(previous.data[0]["streak_date"]) if previous.data else None
+
         def _insert():
             return (
                 self._db.table("bot_streak_log")
@@ -63,7 +77,10 @@ class StreakService:
 
         current = stats.data[0]["current_streak"]
         longest = stats.data[0]["longest_streak"]
-        new_current = current + 1
+        # Decide from the log, not only the nightly reset job: a skipped job run must not
+        # let a streak survive a missed working day.
+        continues = last_day is not None and last_day >= previous_working_day(local_today())
+        new_current = current + 1 if continues else 1
         new_longest = max(longest, new_current)
 
         def _update_stats():
@@ -129,25 +146,32 @@ class StreakService:
         return broken
 
     async def at_risk_members(self) -> list[Member]:
+        """Members with a live streak and nothing logged today."""
         today = local_today().isoformat()
+
+        def _with_streak():
+            return (
+                self._db.table("bot_member_stats")
+                .select("member_id")
+                .gt("current_streak", 0)
+                .execute()
+            )
+
+        def _active_today():
+            return (
+                self._db.table("bot_streak_log")
+                .select("member_id")
+                .eq("streak_date", today)
+                .execute()
+            )
+
+        has_streak = {r["member_id"] for r in (await self._run(_with_streak)).data}
+        if not has_streak:
+            return []
+        active_today = {r["member_id"] for r in (await self._run(_active_today)).data}
+
         all_members = await self._members.get_all_active()
-        at_risk: list[Member] = []
-
-        for member in all_members:
-            member_id = str(member.id)
-
-            def _check(mid=member_id):
-                return (
-                    self._db.table("bot_streak_log")
-                    .select("id")
-                    .eq("member_id", mid)
-                    .eq("streak_date", today)
-                    .limit(1)
-                    .execute()
-                )
-
-            result = await self._run(_check)
-            if not result.data:
-                at_risk.append(member)
-
-        return at_risk
+        return [
+            m for m in all_members
+            if str(m.id) in has_streak and str(m.id) not in active_today
+        ]

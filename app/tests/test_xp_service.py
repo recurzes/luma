@@ -167,3 +167,35 @@ async def test_leaderboard_ordered_by_xp():
     assert entries[0].discord_name == "Alice"
     assert entries[0].rank == 1
     assert entries[1].rank == 2
+
+# ── dedupe_key ────────────────────────────────────────────────────────────────
+
+def _dedupe_db(already_awarded: bool):
+    ledger = MagicMock()
+    ledger.execute.return_value = MagicMock(data=[{"id": "x"}] if already_awarded else [])
+    stats = MagicMock()
+    stats.execute.return_value = MagicMock(data=[{"total_xp": 40, "level": 1}])
+    for chain in (ledger, stats):
+        for m in ["select", "insert", "update", "eq", "limit"]:
+            getattr(chain, m).return_value = chain
+    db = MagicMock()
+    db.table.side_effect = lambda name: ledger if "ledger" in name else stats
+    return db, ledger
+
+
+async def test_award_with_seen_dedupe_key_awards_nothing():
+    db, ledger = _dedupe_db(already_awarded=True)
+    result = await XPService(db).award(MEMBER_ID, "pr_merged", dedupe_key="evt-1")
+
+    assert result.duplicate is True
+    assert result.xp_awarded == 0 and result.new_total == 40
+    ledger.insert.assert_not_called()
+    ledger.eq.assert_any_call("metadata->>dedupe_key", "evt-1")
+
+
+async def test_award_with_new_dedupe_key_stores_it():
+    db, ledger = _dedupe_db(already_awarded=False)
+    result = await XPService(db).award(MEMBER_ID, "pr_merged", metadata={"pr_number": 7}, dedupe_key="evt-2")
+
+    assert result.duplicate is False and result.xp_awarded == 20
+    assert ledger.insert.call_args.args[0]["metadata"] == {"pr_number": 7, "dedupe_key": "evt-2"}

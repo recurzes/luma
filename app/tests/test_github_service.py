@@ -111,3 +111,53 @@ def test_pair_channels_are_recognised_by_their_markers():
     assert not _is_pair_channel(_text("general", "Pair session: nope"))
     assert _is_pair_channel(_voice("🎤 pair-auth bug"))
     assert not _is_pair_channel(_voice("General"))
+
+
+# ── Event queue ───────────────────────────────────────────────────────────────
+
+async def test_process_pending_marks_success_and_keeps_failures_queued():
+    svc = _make_svc()
+    events = [
+        {"id": "ok", "event_type": "push", "attempts": 0},
+        {"id": "bad", "event_type": "push", "attempts": 1},
+        {"id": "unknown", "event_type": "star", "attempts": 0},
+    ]
+
+    async def _push(event_row):
+        if event_row["id"] == "bad":
+            raise RuntimeError("discord down")
+
+    marks: dict[str, dict] = {}
+
+    async def _mark(event_id, fields):
+        marks[event_id] = fields
+
+    with patch.object(svc, "fetch_pending_events", AsyncMock(return_value=events)), \
+            patch.object(svc, "process_push", _push), \
+            patch.object(svc, "_mark_event", _mark):
+        processed, failed = await svc.process_pending()
+
+    assert (processed, failed) == (2, 1)
+    assert "processed_at" in marks["ok"] and "processed_at" in marks["unknown"]
+    assert marks["bad"] == {"attempts": 2, "last_error": "discord down"}
+
+
+async def test_push_awards_each_commit_once_per_event():
+    svc = _make_svc()
+    svc._xp.award = AsyncMock()
+    svc._streak.record_activity = AsyncMock()
+    event_row = {
+        "id": "evt-1", "event_type": "push", "actor": "devuser",
+        "payload": {"pusher": {"name": "devuser"}, "ref": "refs/heads/main",
+                    "commits": [{"id": "sha1", "message": "one"}, {"id": "sha2", "message": "two"}]},
+    }
+
+    with patch.object(svc, "get_member_by_github", AsyncMock(return_value=_member())), \
+            patch("app.services.github_service.get_current_streak", AsyncMock(return_value=0)), \
+            patch("app.services.github_service.BadgeService") as badge_cls, \
+            patch.object(svc, "_post_to_channel", AsyncMock()):
+        badge_cls.return_value.check_and_award = AsyncMock(return_value=[])
+        await svc.process_push(event_row)
+
+    keys = [call.kwargs["dedupe_key"] for call in svc._xp.award.await_args_list]
+    assert keys == ["evt-1:sha1", "evt-1:sha2"]

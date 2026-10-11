@@ -40,7 +40,7 @@ def _chain(data=None):
     r = MagicMock()
     r.data = data or []
     c.execute.return_value = r
-    for m in ["select", "insert", "update", "upsert", "eq", "order", "limit"]:
+    for m in ["select", "insert", "update", "upsert", "eq", "lt", "order", "limit"]:
         getattr(c, m).return_value = c
     return c
 

@@ -8,6 +8,7 @@ from supabase import Client
 from app.models.blitz import *
 from app.services.xp_service import XPService
 from app.services.badge_service import BadgeService
+from app.utils.db import run_query
 
 MILESTONES = {
     "75pct_done": 0.75,
@@ -46,7 +47,7 @@ class BlitzService:
         now = datetime.now(timezone.utc)
         ends_at = now + timedelta(hours=payload.duration_hours)
 
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .insert({
                 "guild_id": payload.guild_id,
@@ -61,7 +62,6 @@ class BlitzService:
                 "guild_channel_id": payload.guild_channel_id,
                 "status": "active"
             })
-            .execute()
         )
         row = _first_row(result)
         if row is None:
@@ -72,9 +72,9 @@ class BlitzService:
         return session
 
     async def set_announce_msg(self, blitz_id: UUID, msg_id: str) -> None:
-        self.db.table("companion_blitz_sessions").update(
+        await run_query(self.db.table("companion_blitz_sessions").update(
             {"announce_msg_id": msg_id}
-        ).eq("id", str(blitz_id)).execute()
+        ).eq("id", str(blitz_id)))
 
     async def extend(self, blitz_id: UUID, extra_hours: int) -> BlitzSession:
         session = await self.get_by_id(blitz_id)
@@ -86,14 +86,13 @@ class BlitzService:
         new_ends_at = session.ends_at + timedelta(hours=extra_hours)
         new_extended = session.extended_hours + extra_hours
 
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .update({
                 "ends_at": new_ends_at.isoformat(),
                 "extended_hours": new_extended
             })
             .eq("id", str(blitz_id))
-            .execute()
         )
         row = _first_row(result)
         if row is None:
@@ -101,11 +100,10 @@ class BlitzService:
         return BlitzSession(**row)
 
     async def transition_to_showcase(self, blitz_id: UUID) -> BlitzSession:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .update({"status": "showcase"})
             .eq("id", str(blitz_id))
-            .execute()
         )
         row = _first_row(result)
         if row is None:
@@ -124,14 +122,13 @@ class BlitzService:
             if str(mid) in showcase_member_ids:
                 await self.xp_svc.award(str(mid), "blitz_complete")
 
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .update({
                 "status": "completed",
                 "completed_at": now.isoformat()
             })
             .eq("id", str(blitz_id))
-            .execute()
         )
         row = _first_row(result)
         if row is None:
@@ -140,14 +137,13 @@ class BlitzService:
 
     async def cancel(self, blitz_id: UUID) -> BlitzSession:
         now = datetime.now(timezone.utc)
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .update({
                 "status": "cancelled",
                 "cancelled_at": now.isoformat()
             })
             .eq("id", str(blitz_id))
-            .execute()
         )
         row = _first_row(result)
         if row is None:
@@ -160,13 +156,12 @@ class BlitzService:
         if existing:
             raise ValueError("You're already in this blitz")
 
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_participants")
             .insert({
                 "blitz_id": str(blitz_id),
                 "member_id": str(member_id)
             })
-            .execute()
         )
 
         row = _first_row(result)
@@ -178,13 +173,12 @@ class BlitzService:
         return BlitzParticipant(**row)
 
     async def is_participant(self, blitz_id: UUID, member_id: UUID) -> bool:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_participants")
             .select("id")
             .eq("blitz_id", str(blitz_id))
             .eq("member_id", str(member_id))
             .limit(1)
-            .execute()
         )
         return _first_row(result) is not None
 
@@ -204,7 +198,7 @@ class BlitzService:
         if not await self.is_participant(blitz_id, member_id):
             await self.join(blitz_id, member_id)
 
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_checkins")
             .insert({
                 "blitz_id": str(blitz_id),
@@ -214,7 +208,6 @@ class BlitzService:
                 "mood": mood,
                 "posted_at": datetime.now(timezone.utc).isoformat()
             })
-            .execute()
         )
         row = _first_row(result)
         if row is None:
@@ -245,17 +238,16 @@ class BlitzService:
             raise ValueError("Showcase submissions are closed")
 
         # Re-submitting edits the showcase; XP and badges are for the first one only.
-        existing = (
+        existing = await run_query(
             self.db.table("companion_blitz_showcases")
             .select("id")
             .eq("blitz_id", str(blitz_id))
             .eq("member_id", str(member_id))
             .limit(1)
-            .execute()
         )
         is_first = _first_row(existing) is None
 
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_showcases")
             .upsert({
                 "blitz_id": str(blitz_id),
@@ -269,7 +261,6 @@ class BlitzService:
             },
                 on_conflict="blitz_id,member_id"
             )
-            .execute()
         )
 
         row = _first_row(result)
@@ -291,41 +282,39 @@ class BlitzService:
 
 
     async def vote_showcase(self, showcase_id: UUID) -> int:
-        current = (
+        current = await run_query(
             self.db.table("companion_blitz_showcases")
             .select("vote_count")
             .eq("id", str(showcase_id))
             .limit(1)
-            .execute()
         )
         row = _first_row(current)
         if not row:
             raise ValueError("Showcase not found")
 
         new_count = (row["vote_count"] or 0) + 1
-        self.db.table("companion_blitz_showcases").update(
+        await run_query(self.db.table("companion_blitz_showcases").update(
             {"vote_count": new_count}
-        ).eq("id", str(showcase_id)).execute()
+        ).eq("id", str(showcase_id)))
         return new_count
 
 
     # Milestones
     async def mark_milestone(self, blitz_id: UUID, milestone: str) -> bool:
-        existing = (
+        existing = await run_query(
             self.db.table("companion_blitz_milestones")
             .select("id")
             .eq("blitz_id", str(blitz_id))
             .eq("milestone", milestone)
             .limit(1)
-            .execute()
         )
         if _first_row(existing):
             return False
 
-        self.db.table("companion_blitz_milestones").insert({
+        await run_query(self.db.table("companion_blitz_milestones").insert({
             "blitz_id": str(blitz_id),
             "milestone": milestone
-        }).execute()
+        }))
         return True
 
 
@@ -353,84 +342,76 @@ class BlitzService:
 
     # Queries
     async def get_by_id(self, blitz_id: UUID) -> BlitzSession | None:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .select("*")
             .eq("id", str(blitz_id))
             .limit(1)
-            .execute()
         )
         row = _first_row(result)
         return BlitzSession(**row) if row else None
 
     async def get_active(self, guild_id: str) -> BlitzSession | None:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .select("*")
             .eq("guild_id", guild_id)
             .in_("status", ["active", "showcase"])
             .limit(1)
-            .execute()
         )
         row = _first_row(result)
         return BlitzSession(**row) if row else None
 
     async def get_all_active(self) -> list[BlitzSession]:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .select("*")
             .in_("status", ["active", "showcase"])
-            .execute()
         )
         return [BlitzSession(**r) for r in _rows(result)]
 
     async def get_participants(self, blitz_id: UUID) -> list[BlitzParticipant]:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_participants")
             .select("*")
             .eq("blitz_id", str(blitz_id))
-            .execute()
         )
         return [BlitzParticipant(**r) for r in _rows(result)]
 
     async def get_checkins(self, blitz_id: UUID) -> list[BlitzCheckin]:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_checkins")
             .select("*")
             .eq("blitz_id", str(blitz_id))
             .order("posted_at")
-            .execute()
         )
         return [BlitzCheckin(**r) for r in _rows(result)]
 
     async def get_showcases(self, blitz_id: UUID) -> list[BlitzShowcase]:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_showcases")
             .select("*")
             .eq("blitz_id", str(blitz_id))
             .order("vote_count.desc")
-            .execute()
         )
         return [BlitzShowcase(**r) for r in _rows(result)]
 
     async def get_history(self, guild_id: str, limit: int = 10) -> list[BlitzSession]:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_sessions")
             .select("*")
             .eq("guild_id", guild_id)
             .in_("status", ["completed", "cancelled"])
             .order("completed_at.desc")
             .limit(limit)
-            .execute()
         )
         return [BlitzSession(**r) for r in _rows(result)]
 
     async def member_blitz_count(self, member_id: UUID) -> int:
-        result = (
+        result = await run_query(
             self.db.table("companion_blitz_participants")
             .select("companion_blitz_sessions!inner(status)")
             .eq("member_id", str(member_id))
             .eq("companion_blitz_sessions.status", "completed")
-            .execute()
         )
         return len(_rows(result))
