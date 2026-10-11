@@ -242,16 +242,96 @@ async def test_status_in_progress_to_in_review():
     assert updated.status == "in_review"
 
 
+def _close_db(open_row, member_rows=None):
+    """Ticket selects return `open_row`; the close update returns it marked done."""
+    closed_row = {**open_row, "status": "done", "closed_at": NOW.isoformat()}
+    db = _mock_db(ticket_rows=[open_row], member_rows=member_rows)
+    ticket_chain = db.table("bot_tickets")
+
+    update_result = MagicMock()
+    update_result.data = [closed_row]
+    update_chain = MagicMock()
+    update_chain.eq.return_value = update_chain
+    update_chain.execute.return_value = update_result
+    ticket_chain.update.return_value = update_chain
+    return db
+
+
+def _xp_mock():
+    xp = MagicMock()
+    xp.award = AsyncMock(return_value=MagicMock(xp_awarded=10, new_level=1, level_up=False))
+    return xp
+
+
 @pytest.mark.asyncio
-async def test_close_sets_closed_at_and_increments_stats():
-    closed_row = {**TICKET_ROW, "status": "done", "closed_at": NOW.isoformat()}
-    db = _mock_db(ticket_rows=[closed_row])
+async def test_close_sets_closed_at():
+    db = _close_db(TICKET_ROW)
     service = _make_service(db)
 
     result = await service.close(str(TICKET_ID), "111")
 
     assert result.ticket.status == "done"
     assert result.ticket.closed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_close_already_done_ticket_raises():
+    done_row = {**TICKET_ROW, "status": "done", "closed_at": NOW.isoformat()}
+    db = _mock_db(ticket_rows=[done_row])
+    service = _make_service(db)
+
+    with pytest.raises(ValueError, match="already closed"):
+        await service.close(str(TICKET_ID), "111")
+
+
+@pytest.mark.asyncio
+async def test_close_credits_the_assignee_not_the_closer():
+    assigned_row = {**TICKET_ROW, "assignee_id": str(MEMBER_ID), "status": "in_progress"}
+    db = _close_db(assigned_row, member_rows=[BEGINNER_ROW])
+    xp = _xp_mock()
+    from app.services.member_service import MemberService
+    service = TicketService(db, MemberService(db), xp_service=xp)
+
+    with patch("app.services.ticket_service.BadgeService") as badge_cls:
+        badge_cls.return_value.check_and_award = AsyncMock(return_value=[])
+        result = await service.close(str(TICKET_ID), "222")
+
+    assert xp.award.await_args.args[:2] == (str(MEMBER_ID), "close_t1")
+    assert result.awarded_to is not None and result.awarded_to.id == MEMBER_ID
+    assert result.xp_awarded == 10
+
+
+@pytest.mark.asyncio
+async def test_close_unassigned_ticket_awards_nothing():
+    db = _close_db(TICKET_ROW)
+    xp = _xp_mock()
+    from app.services.member_service import MemberService
+    service = TicketService(db, MemberService(db), xp_service=xp)
+
+    result = await service.close(str(TICKET_ID), "111")
+
+    xp.award.assert_not_awaited()
+    assert result.awarded_to is None
+    assert result.xp_awarded == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_id", ["%", "a", "zzzzzzzz", "1234567", "%2345678"])
+async def test_malformed_short_id_never_reaches_the_database(bad_id):
+    db = _mock_db(ticket_rows=[TICKET_ROW])
+    service = _make_service(db)
+
+    assert await service.get(bad_id) is None
+    db.table.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_short_id_raises():
+    db = _mock_db(ticket_rows=[TICKET_ROW, {**TICKET_ROW, "id": str(uuid4())}])
+    service = _make_service(db)
+
+    with pytest.raises(ValueError, match="more than one"):
+        await service.get("abcd1234")
 
 
 @pytest.mark.asyncio
@@ -275,7 +355,7 @@ async def test_close_nonexistent_ticket_raises():
     service = _make_service(db)
 
     with pytest.raises(ValueError, match="not found"):
-        await service.close("nonexistent", "111")
+        await service.close("0000abcd", "111")
 
 
 @pytest.mark.asyncio

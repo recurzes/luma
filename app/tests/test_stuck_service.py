@@ -123,6 +123,24 @@ async def test_resolve_awards_xp_to_helper():
     assert thread.status == "resolved"
 
 
+async def test_resolve_without_helper_awards_nothing():
+    svc, xp_svc = _make_svc(thread_data=[{**_RESOLVED_ROW, "helper_id": None}])
+    await svc.resolve(THREAD_ID, None)
+    xp_svc.award.assert_not_called()
+
+
+async def test_resolve_does_not_pay_the_requester_for_their_own_thread():
+    svc, xp_svc = _make_svc(thread_data=[{**_RESOLVED_ROW, "helper_id": MEMBER_ID}])
+    await svc.resolve(THREAD_ID, MEMBER_ID)
+    xp_svc.award.assert_not_called()
+
+
+async def test_escalated_thread_is_still_resolvable():
+    svc, _ = _make_svc(thread_data=[_ESCALATED_ROW])
+    thread = await svc.get_unresolved_by_discord_thread("999")
+    assert thread is not None and thread.status == "escalated"
+
+
 async def test_resolve_not_found_raises():
     svc, _ = _make_svc(thread_data=[])
     with pytest.raises(ValueError, match="not found"):
