@@ -189,3 +189,63 @@ async def test_check_all_streaks_skips_zero_streak_member():
     svc = StreakService(db, members_svc)
     broken = await svc.check_all_streaks()
     assert broken == []
+
+
+# ── weekend-aware streaks ─────────────────────────────────────────────────────
+
+def test_previous_working_day_skips_the_weekend():
+    from app.utils.time import previous_working_day
+
+    assert previous_working_day(date(2026, 10, 12)) == date(2026, 10, 9)   # Monday -> Friday
+    assert previous_working_day(date(2026, 10, 11)) == date(2026, 10, 9)   # Sunday -> Friday
+    assert previous_working_day(date(2026, 10, 14)) == date(2026, 10, 13)  # Wednesday -> Tuesday
+
+
+async def _new_streak(today: date, last_active: date | None, current: int) -> int:
+    from unittest.mock import patch
+
+    db = MagicMock()
+    members_svc = MagicMock(spec=MemberService)
+    today_chain = _chain(data=[])  # nothing logged today yet
+    previous_chain = _chain(data=[{"streak_date": last_active.isoformat()}] if last_active else [])
+    stats_chain = _chain(data=[{"current_streak": current, "longest_streak": current}])
+    log_chains = iter([today_chain, previous_chain, _chain()])
+
+    def _table(name):
+        return next(log_chains) if "streak_log" in name else stats_chain
+
+    db.table.side_effect = _table
+    with patch("app.services.steak_service.local_today", return_value=today):
+        await StreakService(db, members_svc).record_activity(MEMBER_ID, "commit")
+    return stats_chain.update.call_args.args[0]["current_streak"]
+
+
+async def test_streak_survives_the_weekend():
+    monday, friday = date(2026, 10, 12), date(2026, 10, 9)
+    assert await _new_streak(monday, last_active=friday, current=4) == 5
+
+
+async def test_streak_restarts_after_a_missed_working_day():
+    monday, thursday = date(2026, 10, 12), date(2026, 10, 8)
+    assert await _new_streak(monday, last_active=thursday, current=4) == 1
+
+
+async def test_first_ever_activity_starts_at_one():
+    assert await _new_streak(date(2026, 10, 12), last_active=None, current=0) == 1
+
+
+async def test_at_risk_excludes_zero_streaks_and_members_active_today():
+    db = MagicMock()
+    members_svc = MagicMock(spec=MemberService)
+    risky, safe, no_streak = (MagicMock(id=uuid4()) for _ in range(3))
+
+    async def _all():
+        return [risky, safe, no_streak]
+
+    members_svc.get_all_active = _all
+    stats_chain = _chain(data=[{"member_id": str(risky.id)}, {"member_id": str(safe.id)}])
+    log_chain = _chain(data=[{"member_id": str(safe.id)}])
+    db.table.side_effect = lambda name: log_chain if "streak_log" in name else stats_chain
+
+    at_risk = await StreakService(db, members_svc).at_risk_members()
+    assert at_risk == [risky]
