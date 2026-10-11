@@ -18,6 +18,7 @@ class Ticket(BaseModel):
     reviewer_id: UUID | None
     created_by: UUID | None
     project_id: UUID | None = None
+    guild_id: str | None = None
     deadline: datetime | None
     closed_at: datetime | None
     github_pr: str | None

@@ -43,15 +43,19 @@ class AssignResult:
 
 
 class TicketService:
+    """Tickets of one server: every query is filtered by the guild given here."""
+
     def __init__(
             self,
             db: Client,
             members: MemberService,
+            guild_id: str,
             xp_service=None,
             streak_service=None
     ) -> None:
         self._db = db
         self._members = members
+        self._guild_id = guild_id
         self._xp = xp_service
         self._streak = streak_service
 
@@ -71,6 +75,7 @@ class TicketService:
                     self._db.table("bot_tickets")
                     .select("*")
                     .eq("id", str(full_id))
+                    .eq("guild_id", self._guild_id)
                     .limit(1)
                     .execute()
                 )
@@ -87,6 +92,7 @@ class TicketService:
                 self._db.table("bot_tickets")
                 .select("*")
                 .ilike("id_text", f"%{short_id}")
+                .eq("guild_id", self._guild_id)
                 .limit(2)
                 .execute()
             )
@@ -104,10 +110,11 @@ class TicketService:
             payload: TicketCreate,
             created_by_discord_id: str
     ) -> Ticket:
-        creator = await self._members.get_by_discord_id(created_by_discord_id)
+        creator = await self._members.get_by_discord_id(created_by_discord_id, self._guild_id)
         created_by_id = str(creator.id) if creator else None
 
         row: dict = {
+            "guild_id": self._guild_id,
             "title": payload.title,
             "tier": payload.tier,
             "status": "todo",
@@ -141,7 +148,7 @@ class TicketService:
             phase: str | None = None
     ) -> list[Ticket]:
         def _fetch():
-            q = self._db.table("bot_tickets").select("*").neq("status", "done")
+            q = self._db.table("bot_tickets").select("*").eq("guild_id", self._guild_id).neq("status", "done")
             if status:
                 q = q.eq("status", status)
             if phase:
@@ -152,7 +159,7 @@ class TicketService:
         return [self._parse(r) for r in result.data]
 
     async def get_by_assignee(self, discord_id: str) -> list[Ticket]:
-        member = await self._members.get_by_discord_id(discord_id)
+        member = await self._members.get_by_discord_id(discord_id, self._guild_id)
         if member is None:
             return []
 
@@ -176,7 +183,7 @@ class TicketService:
             assignee_discord_id: str,
             tier: str
     ) -> bool:
-        member = await self._members.get_by_discord_id(assignee_discord_id)
+        member = await self._members.get_by_discord_id(assignee_discord_id, self._guild_id)
         if member is None:
             raise ValueError(f"No member found with discord_id {assignee_discord_id!r}")
 
@@ -200,7 +207,7 @@ class TicketService:
         return True
 
     async def _is_first_t2(self, assignee_discord_id: str) -> bool:
-        member = await self._members.get_by_discord_id(assignee_discord_id)
+        member = await self._members.get_by_discord_id(assignee_discord_id, self._guild_id)
         if member is None or member.role in ("lead", "professor"):
             return False
 
@@ -233,7 +240,7 @@ class TicketService:
         if ticket.tier == "T2":
             first_t2 = await self._is_first_t2(assignee_discord_id)
 
-        assignee = await self._members.get_by_discord_id(assignee_discord_id)
+        assignee = await self._members.get_by_discord_id(assignee_discord_id, self._guild_id)
         assert assignee is not None
         assignee_id = str(assignee.id)
 

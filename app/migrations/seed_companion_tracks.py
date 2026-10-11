@@ -69,15 +69,21 @@ def seed(db):
     for track_data in BUILTIN_TRACKS:
         checkpoints = track_data.pop("checkpoints")
 
-        result = (
+        # Built-in tracks have no guild_id and are shared by every server (migration 015).
+        existing = (
             db.table("companion_tracks")
-            .upsert(
-                {**track_data, "is_builtin": True},
-                on_conflict="name"
-            )
+            .select("id")
+            .eq("name", track_data["name"])
+            .is_("guild_id", "null")
+            .limit(1)
             .execute()
         )
-        track_id = result.data[0]["id"]
+        if existing.data:
+            track_id = existing.data[0]["id"]
+            db.table("companion_tracks").update({**track_data, "is_builtin": True}).eq("id", track_id).execute()
+        else:
+            result = db.table("companion_tracks").insert({**track_data, "is_builtin": True}).execute()
+            track_id = result.data[0]["id"]
         print(f"Track: {track_data['name']} ({track_id})")
 
         for cp in checkpoints:

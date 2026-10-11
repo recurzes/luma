@@ -105,7 +105,7 @@ class StreakService:
         today = local_today().isoformat()
         broken: list[str] = []
 
-        all_members = await self._members.get_all_active()
+        all_members = await self._members.get_all()
 
         def _had_activity(member_id: str):
             return (
@@ -170,7 +170,7 @@ class StreakService:
             return []
         active_today = {r["member_id"] for r in (await self._run(_active_today)).data}
 
-        all_members = await self._members.get_all_active()
+        all_members = await self._members.get_all()
         return [
             m for m in all_members
             if str(m.id) in has_streak and str(m.id) not in active_today

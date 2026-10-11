@@ -13,6 +13,7 @@ class Track(BaseModel):
     level: str | None
     created_by: UUID | None
     is_builtin: bool
+    guild_id: str | None = None
     created_at: datetime
 
 

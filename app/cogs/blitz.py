@@ -25,6 +25,7 @@ from app.utils.guards import require_member, staff_only
 SHOWCASE_GRACE_HOURS = 2
 
 
+@app_commands.guild_only()
 class BlitzCog(commands.GroupCog, name="blitz"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot

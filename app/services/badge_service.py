@@ -222,10 +222,25 @@ class BadgeService:
 
     async def _check_standup_champion(self, member_id: str) -> bool:
         """Consecutive means a response in each of the most recent standup sessions."""
+        def _member_guild():
+            return (
+                self._db.table("bot_members")
+                .select("guild_id")
+                .eq("id", member_id)
+                .limit(1)
+                .execute()
+            )
+
+        member = await self._run(_member_guild)
+        if not member.data:
+            return False
+        guild_id = member.data[0]["guild_id"]
+
         def _recent_sessions():
             return (
                 self._db.table("bot_standup_sessions")
                 .select("id")
+                .eq("guild_id", guild_id)
                 .order("date", desc=True)
                 .limit(_STANDUP_CHAMPION_RUN)
                 .execute()

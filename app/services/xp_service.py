@@ -218,37 +218,27 @@ class XPService:
         result = await self._run(_fetch)
         return [XPLedgerEntry.model_validate(r) for r in result.data]
 
-    async def leaderboard(self, limit: int = 10) -> list[LeaderboardEntry]:
-        def _fetch_stats():
+    async def leaderboard(self, guild_id: str, limit: int = 10) -> list[LeaderboardEntry]:
+        """Top members of one server by XP."""
+        def _fetch():
             return (
                 self._db.table("bot_member_stats")
-                .select("member_id, total_xp, level, current_streak")
+                .select(
+                    "member_id, total_xp, level, current_streak, "
+                    "bot_members!inner(discord_id, discord_name, guild_id)"
+                )
+                .eq("bot_members.guild_id", guild_id)
                 .order("total_xp", desc=True)
                 .limit(limit)
                 .execute()
             )
 
-        stats_result = await self._run(_fetch_stats)
-        if not stats_result.data:
-            return []
-
-        member_ids = [r["member_id"] for r in stats_result.data]
-
-        def _fetch_members():
-            return (
-                self._db.table("bot_members")
-                .select("id, discord_id, discord_name")
-                .in_("id", member_ids)
-                .execute()
-            )
-
-        members_result = await self._run(_fetch_members)
-        members_by_id = {r["id"]: r for r in members_result.data}
+        result = await self._run(_fetch)
 
         entries: list[LeaderboardEntry] = []
-        for rank, row in enumerate(stats_result.data, start=1):
-            m = members_by_id.get(row["member_id"])
-            if m is None:
+        for rank, row in enumerate(result.data, start=1):
+            m = row.get("bot_members")
+            if not m:
                 continue
             entries.append(
                 LeaderboardEntry(

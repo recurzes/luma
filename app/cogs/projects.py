@@ -6,9 +6,11 @@ from app import database
 from app.services.project_service import ProjectService
 from app.embeds.project_embed import *
 from app.models.project import ProjectCreate
+from app.utils.github_repo import normalize_repo
 from app.utils.guards import require_member, staff_only
 
 
+@app_commands.guild_only()
 class ProjectsCog(commands.GroupCog, name="project"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -129,8 +131,20 @@ class ProjectsCog(commands.GroupCog, name="project"):
         project = await self.project_svc.resolve_active_or_abort(member.id, interaction)
         if not project:
             return
-        await self.project_svc.link_repo(project.id, url)
-        await interaction.followup.send(f"Linked **{url}** to **{project.name}**", ephemeral=True)
+        repo = normalize_repo(url)
+        if repo is None:
+            await interaction.followup.send(
+                "That doesn't look like a GitHub repository. Use `https://github.com/owner/repo` or `owner/repo`",
+                ephemeral=True
+            )
+            return
+
+        # Stored as owner/repo: GitHub events for it are routed to this server by this link.
+        await self.project_svc.link_repo(project.id, f"https://github.com/{repo}")
+        await interaction.followup.send(
+            f"Linked **{repo}** to **{project.name}**. Pushes and PRs on it now post in this server",
+            ephemeral=True
+        )
 
 
 async def setup(bot: commands.Bot):

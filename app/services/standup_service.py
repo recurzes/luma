@@ -40,26 +40,28 @@ class StandupService:
     def _parse_response(self, data: dict) -> StandupResponse:
         return StandupResponse.model_validate(data)
 
-    async def open_session(self) -> StandupSession:
+    async def open_session(self, guild_id: str) -> StandupSession:
         today = local_today().isoformat()
 
         def _insert():
             return (
                 self._db.table("bot_standup_sessions")
-                .insert({"date": today})
+                .insert({"guild_id": guild_id, "date": today})
                 .execute()
             )
 
         result = await self._run(_insert)
         return self._parse_session(result.data[0])
 
-    async def get_or_create_today(self) -> StandupSession:
+    async def get_or_create_today(self, guild_id: str) -> StandupSession:
+        """Each server has its own standup session per day."""
         today = local_today().isoformat()
 
         def _fetch():
             return (
                 self._db.table("bot_standup_sessions")
                 .select("*")
+                .eq("guild_id", guild_id)
                 .eq("date", today)
                 .limit(1)
                 .execute()
@@ -68,7 +70,7 @@ class StandupService:
         result = await self._run(_fetch)
         if result.data:
             return self._parse_session(result.data[0])
-        return await self.open_session()
+        return await self.open_session(guild_id)
 
     async def save_response(
             self,
@@ -127,8 +129,8 @@ class StandupService:
         result = await self._run(_fetch)
         return [self._parse_response(r) for r in result.data]
 
-    async def non_responders(self, session_id: str) -> list[Member]:
-        all_members = await self._members.get_all_active()
+    async def non_responders(self, session_id: str, guild_id: str) -> list[Member]:
+        all_members = await self._members.get_all_active(guild_id)
         responses = await self.get_responses(session_id)
         responded_ids = {str(r.member_id) for r in responses}
         return [m for m in all_members if str(m.id) not in responded_ids]
