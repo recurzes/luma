@@ -9,7 +9,7 @@ from app import database
 from app.config import settings
 from app.models.notification_preference import NOTIFICATION_FEATURES
 from app.services.enrollment_service import EnrollmentService
-from app.services.member_service import MemberService
+from app.services.member_service import GithubUsernameTakenError, MemberService
 from app.services.notification_service import NotificationService
 from app.utils.guards import require_member
 
@@ -343,7 +343,20 @@ class MemberCog(commands.GroupCog, name="member"):
         except RuntimeError:
             return
 
-        member = await self._service.update_github_username(str(interaction.user.id), str(interaction.guild_id), username)
+        try:
+            member = await self._service.update_github_username(
+                str(interaction.user.id), str(interaction.guild_id), username
+            )
+        except GithubUsernameTakenError as e:
+            await interaction.followup.send(
+                f"**{e.username}** is already linked to another member in this server. "
+                "If it is yours, ask a Lead or Professor to sort it out.",
+                ephemeral=True
+            )
+            return
+        except ValueError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
 
         embed = discord.Embed(
             title="GitHub linked",

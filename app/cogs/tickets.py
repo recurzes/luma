@@ -351,15 +351,25 @@ class TicketCog(commands.GroupCog, name="ticket"):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="board", description="Show the full ticket board grouped by status")
+    @app_commands.command(name="board", description="Show your active project's ticket board grouped by status")
+    @app_commands.describe(all_projects="Show tickets from every project in this server")
     @app_commands.checks.cooldown(1, 30.0, key=lambda i: i.guild_id)
-    async def board(self, interaction: discord.Interaction) -> None:
+    async def board(self, interaction: discord.Interaction, all_projects: bool = False) -> None:
         await interaction.response.defer()
 
         service = self._ticket_service(interaction.guild_id)
-        all_tickets = await service.get_all()
 
-        embed = build_board_embed(all_tickets)
+        project = None
+        if not all_projects:
+            member = await MemberService(database.get_db()).get_by_discord_id(
+                str(interaction.user.id), str(interaction.guild_id)
+            )
+            if member:
+                project = await self._project_service().get_active_project(member.id)
+
+        tickets = await service.get_all(project_id=str(project.id) if project else None)
+
+        embed = build_board_embed(tickets, project_name=project.name if project else None)
         await interaction.followup.send(embed=embed)
 
 

@@ -6,8 +6,6 @@ from discord import app_commands
 from discord.ext import commands
 import asyncio
 
-from sqlalchemy.ext.asyncio import result
-
 from app import database
 from app.embeds.leaderboard_embed import build_leaderboard_embed
 from app.services.enrollment_service import EnrollmentService

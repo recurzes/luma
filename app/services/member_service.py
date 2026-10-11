@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from functools import partial
 from typing import Any
 
@@ -13,6 +14,24 @@ log = structlog.get_logger()
 
 _VALID_ROLES = {"lead", "professor", "beginner"}
 _VALID_TIERS = {"T1", "T2", "T3"}
+# GitHub's own rule: 1-39 letters, digits or single hyphens, not starting or ending with a hyphen.
+_GITHUB_USERNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
+
+
+class GithubUsernameTakenError(ValueError):
+    def __init__(self, username: str) -> None:
+        self.username = username
+        super().__init__(f"GitHub username {username!r} is already linked to another member")
+
+
+def normalize_github_username(value: str) -> str:
+    username = value.strip().removeprefix("@")
+    if not _GITHUB_USERNAME.fullmatch(username):
+        raise ValueError(
+            "That is not a valid GitHub username. Use the name from your profile URL, "
+            "for example `octocat` for github.com/octocat."
+        )
+    return username
 
 
 class MemberService:
@@ -124,6 +143,23 @@ class MemberService:
         return [self._parse(row) for row in result.data]
 
     async def update_github_username(self, discord_id: str, guild_id: str, github_username: str) -> Member:
+        github_username = normalize_github_username(github_username)
+
+        def _taken():
+            return (
+                self._db.table("bot_members")
+                .select("discord_id")
+                .eq("guild_id", guild_id)
+                .ilike("github_username", github_username)
+                .neq("discord_id", discord_id)
+                .limit(1)
+                .execute()
+            )
+
+        taken = await asyncio.get_event_loop().run_in_executor(None, _taken)
+        if taken.data:
+            raise GithubUsernameTakenError(github_username)
+
         def _update():
             return (
                 self._db.table("bot_members")

@@ -6,7 +6,6 @@ import discord
 import structlog
 from discord import app_commands
 from discord.ext import commands
-from markdown_it.rules_core import inline
 
 from app import database
 

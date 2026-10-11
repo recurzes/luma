@@ -5,10 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import structlog
-from rich import _timer
-from sqlalchemy.ext.asyncio import result
 from supabase import Client
-from watchfiles import awatch
 
 from app.models.badge import Badge
 from app.models.member import Member
@@ -145,10 +142,13 @@ class TicketService:
     async def get_all(
             self,
             status: str | None = None,
-            phase: str | None = None
+            phase: str | None = None,
+            project_id: str | None = None
     ) -> list[Ticket]:
         def _fetch():
             q = self._db.table("bot_tickets").select("*").eq("guild_id", self._guild_id).neq("status", "done")
+            if project_id:
+                q = q.eq("project_id", project_id)
             if status:
                 q = q.eq("status", status)
             if phase:
@@ -247,7 +247,11 @@ class TicketService:
         def _update():
             return (
                 self._db.table("bot_tickets")
-                .update({"assignee_id": assignee_id, "status": "in_progress"})
+                .update({
+                    "assignee_id": assignee_id,
+                    "status": "in_progress",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
                 .eq("id", str(ticket.id))
                 .execute()
             )

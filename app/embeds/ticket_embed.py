@@ -85,8 +85,11 @@ def build_ticket_embed(ticket: Ticket, assignee: Member | None) -> discord.Embed
     return embed
 
 
-def build_board_embed(tickets: list[Ticket]) -> discord.Embed:
-    embed = discord.Embed(title="Ticket Board", color=discord.Color.blurple())
+def build_board_embed(tickets: list[Ticket], project_name: str | None = None) -> discord.Embed:
+    title = f"Ticket Board — {project_name}" if project_name else "Ticket Board — all projects"
+    embed = discord.Embed(title=title, color=discord.Color.blurple())
+    if project_name:
+        embed.set_footer(text="Use /ticket board all_projects:True to see every project.")
 
     by_status: dict[str, list[Ticket]] = {
         "todo": [],

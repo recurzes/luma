@@ -4,11 +4,9 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from unittest import result
 
 import structlog
 from supabase import Client
-from watchfiles import awatch
 
 from app.models.member import MemberStats
 from app.models.xp import LeaderboardEntry, XPLedgerEntry

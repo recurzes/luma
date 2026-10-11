@@ -240,6 +240,8 @@ class GitHubService:
 
         if member:
             for commit in commits:
+                if not _earns_commit_xp(commit):
+                    continue
                 await self._xp.award(
                     str(member.id), "commit", metadata={"branch": branch},
                     dedupe_key=_event_key(event_row, commit.get("id"))
@@ -391,7 +393,14 @@ class GitHubService:
         )
         await self._post_to_channel(guild_id, "github_feed", embed)
 
-        if reviewer_member:
+        author_login = (pr.get("user") or {}).get("login", "")
+        earns_xp = (
+            payload.get("action", "submitted") == "submitted"
+            and state in _XP_REVIEW_STATES
+            and reviewer_login.lower() != author_login.lower()
+        )
+
+        if reviewer_member and earns_xp:
             xp_result = await self._xp.award(
                 str(reviewer_member.id), "pr_reviewed", metadata={"pr_number": pr.get("number")},
                 dedupe_key=_event_key(event_row)
@@ -554,6 +563,17 @@ class GitHubService:
             color=discord.Color.gold()
         )
         await self._post_to_channel(member.guild_id, "shoutouts", embed)
+
+
+# A review earns XP only when it is a verdict; plain comments and dismissals do not.
+_XP_REVIEW_STATES = ("approved", "changes_requested")
+
+
+def _earns_commit_xp(commit: dict) -> bool:
+    """Skip merge commits and commits already pushed to another branch (distinct=false)."""
+    if commit.get("distinct") is False:
+        return False
+    return not (commit.get("message") or "").startswith("Merge ")
 
 
 def _escape_like(value: str) -> str:
