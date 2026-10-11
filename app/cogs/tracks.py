@@ -18,7 +18,9 @@ from app.services.badge_service import BadgeService
 from app.services.xp_service import XPService
 from app.embeds.track_embed import *
 from app.models.track import TrackProgress, Track, Checkpoint, CheckpointCompletion
-from app.utils.guards import require_member
+from app.utils.badge_broadcast import make_badge_announcer
+from app.utils.guards import require_member, staff_only
+from app.utils.db import row_or_none
 
 import bcrypt
 
@@ -42,7 +44,7 @@ class TrackCog(commands.GroupCog, name="track"):
     def _svc(self) -> TrackService:
         db = database.get_db()
         xp = XPService(db)
-        badge = BadgeService(db, xp)
+        badge = BadgeService(db, xp, announce=make_badge_announcer(self.bot, db))
         return TrackService(db, xp_svc=xp, badge_svc=badge)
 
 
@@ -157,9 +159,10 @@ class TrackCog(commands.GroupCog, name="track"):
                 .maybe_single()
                 .execute()
             )
-            if not track_result.data:
+            track_row = row_or_none(track_result)
+            if not track_row:
                 continue
-            track = Track(**track_result.data)
+            track = Track(**track_row)
 
             next_cp = None if prog.completed_at else await svc.get_next_checkpoint(member.id, track.id)
             enrolled.append((track, prog, next_cp))
@@ -188,23 +191,21 @@ class TrackCog(commands.GroupCog, name="track"):
         svc = self._svc()
 
         db = database.get_db()
-        cp_result = (
-            db.table("companion_track_checkpoints")
-            .select("*")
-            .ilike("id", f"{checkpoint_id}%")
-            .limit(1)
-            .maybe_single()
-            .execute()
-        )
-        if not cp_result.data:
+        try:
+            found = await svc.find_checkpoint_by_short_id(member.id, checkpoint_id)
+        except ValueError as e:
+            await interaction.followup.send(f"{e}", ephemeral=True)
+            return
+        if found is None:
             await interaction.followup.send(
-                f"No checkpoint found starting with `{checkpoint_id}`.",
+                f"No checkpoint `{checkpoint_id}` found in your enrolled tracks. "
+                "Use the 8-character ID from your DM or `/track progress`.",
                 ephemeral=True
             )
             return
 
-        full_cp_id = UUID(cp_result.data["id"])
-        track_id = UUID(cp_result.data["track_id"])
+        full_cp_id = found.id
+        track_id = found.track_id
 
         try:
             checkpoint, xp = await svc.complete_checkpoint(
@@ -227,7 +228,8 @@ class TrackCog(commands.GroupCog, name="track"):
             .maybe_single()
             .execute()
         )
-        track = Track(**track_result.data) if track_result.data else None
+        track_row = row_or_none(track_result)
+        track = Track(**track_row) if track_row else None
         track_name = track.name if track else "Unknown track"
 
         progress_result = (
@@ -238,9 +240,8 @@ class TrackCog(commands.GroupCog, name="track"):
             .maybe_single()
             .execute()
         )
-        is_complete = bool(
-            progress_result.data and progress_result.data.get("completed_at")
-        )
+        progress_row = row_or_none(progress_result)
+        is_complete = bool(progress_row and progress_row.get("completed_at"))
 
         next_cp = None if is_complete else await svc.get_next_checkpoint(member.id, track_id)
 
@@ -281,7 +282,7 @@ class TrackCog(commands.GroupCog, name="track"):
         level="Difficulty level"
     )
     @app_commands.choices(level=_LEVEL_CHOICES)
-    @app_commands.checks.has_any_role("Lead", "Professor")
+    @staff_only()
     async def track_create(
             self,
             interaction: discord.Interaction,
@@ -324,7 +325,7 @@ class TrackCog(commands.GroupCog, name="track"):
         answer="Correct answer - will be bcrypt-hashed before storing (required if knowledge_check set)",
         xp="XP awarded on completion (default 10)"
     )
-    @app_commands.checks.has_any_role("Lead", "Professor")
+    @staff_only()
     async def track_add_checkpoint(
             self,
             interaction: discord.Interaction,
@@ -347,14 +348,15 @@ class TrackCog(commands.GroupCog, name="track"):
             .maybe_single()
             .execute()
         )
-        if not track_result.data:
+        track_row = row_or_none(track_result)
+        if not track_row:
             await interaction.followup.send(
                 f"No track named **{track_name}** found.",
                 ephemeral=True
             )
             return
 
-        track_id = track_result.data["id"]
+        track_id = track_row["id"]
 
         if knowledge_check and not answer:
             await interaction.followup.send(
@@ -371,25 +373,24 @@ class TrackCog(commands.GroupCog, name="track"):
             ).decode()
 
         seq_result = (
-            db.table("companion_track_checkpoint")
+            db.table("companion_track_checkpoints")
             .select("sequence")
             .eq("track_id", track_id)
             .order("sequence", desc=True)
             .limit(1)
-            .maybe_single()
             .execute()
         )
-        next_seq = (seq_result.data["sequence"] + 1) if seq_result else 1
+        next_seq = (seq_result.data[0]["sequence"] + 1) if seq_result.data else 1
 
         cp_result = (
-            db.table("companion_track_checkpoint")
+            db.table("companion_track_checkpoints")
             .insert({
                 "track_id": track_id,
                 "sequence": next_seq,
                 "title": title,
                 "resource_url": resource_url,
                 "exercise": exercise,
-                "knowledge_checks": knowledge_check,
+                "knowledge_check": knowledge_check,
                 "answer_hash": answer_hash,
                 "xp_value": xp
             })
@@ -400,7 +401,7 @@ class TrackCog(commands.GroupCog, name="track"):
 
         embed = build_checkpoint_added_embed(
             checkpoint=checkpoint,
-            track_name=track_result.data["name"],
+            track_name=track_row["name"],
             total_checkpoints=next_seq
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -439,7 +440,8 @@ class TrackCog(commands.GroupCog, name="track"):
                     .execute()
                 ),
             )
-            track_name = track_res.data["name"] if track_res.data else "your track"
+            track_row = row_or_none(track_res)
+            track_name = track_row["name"] if track_row else "your track"
             next_cp = await svc.get_next_checkpoint(UUID(member_id), UUID(track_id))
 
             lines = [

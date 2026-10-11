@@ -19,7 +19,8 @@ from app.services.blitz_service import BlitzService
 from app.models.blitz import BlitzCreate, BlitzParticipant
 from app.embeds.blitz_embed import *
 from app.embeds.blitz_embed import _countdown_bar, _remaining_str
-from app.utils.guards import require_member
+from app.utils.badge_broadcast import make_badge_announcer
+from app.utils.guards import require_member, staff_only
 
 SHOWCASE_GRACE_HOURS = 2
 
@@ -29,7 +30,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
         self.bot = bot
         db = database.get_db()
         xp = XPService(db)
-        badge = BadgeService(db, xp)
+        badge = BadgeService(db, xp, announce=make_badge_announcer(bot, db))
         self.blitz_svc = BlitzService(db, xp, badge)
         super().__init__()
 
@@ -298,7 +299,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
 
     @app_commands.command(name="extend", description="Add more time to the active blitz")
     @app_commands.describe(hours="Extra hours to add (max 24)")
-    @app_commands.checks.has_any_role("Lead", "Professor")
+    @staff_only()
     async def blitz_extend(self, interaction: discord.Interaction, hours: int):
         await interaction.response.defer(ephemeral=True)
 
@@ -319,7 +320,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
 
 
     @app_commands.command(name="end", description="Close the blitz and post the showcase gallery")
-    @app_commands.checks.has_any_role("Lead", "Professor")
+    @staff_only()
     async def blitz_end(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
@@ -338,7 +339,7 @@ class BlitzCog(commands.GroupCog, name="blitz"):
             await interaction.followup.send(str(exc), ephemeral=True)
 
     @app_commands.command(name="cancel", description="Cancel the active blitz (no XP awarded)")
-    @app_commands.checks.has_any_role("Lead", "Professor")
+    @staff_only()
     async def blitz_cancel(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 

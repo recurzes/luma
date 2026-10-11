@@ -27,6 +27,18 @@ async def get_current_streak(db: Client, member_id: str) -> int:
     return int(result.data[0].get("current_streak") or 0)
 
 
+def make_badge_announcer(bot: discord.Client, db: Client):
+    """Build a BadgeService `announce` callback that posts new badges to #shoutouts."""
+    from app.services.member_service import MemberService
+
+    async def _announce(member_id: str, badges: list[Badge]) -> None:
+        member = await MemberService(db).get_by_id(member_id)
+        if member:
+            await post_badges_to_shoutouts(bot, member, badges)
+
+    return _announce
+
+
 async def post_badges_to_shoutouts(bot: discord.Client | None, member: Member, badges: list[Badge]) -> None:
     if bot is None or not badges:
         return

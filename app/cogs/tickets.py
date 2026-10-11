@@ -300,21 +300,25 @@ class TicketCog(commands.GroupCog, name="ticket"):
                 except discord.NotFound:
                     await channel.send(embed=embed)
 
-        if close_result.level_up:
+        owner = close_result.awarded_to
+
+        if close_result.level_up and owner:
             shoutouts = self.bot.get_text_channel("shoutouts", interaction.guild)
             if shoutouts and isinstance(shoutouts, discord.TextChannel):
                 await shoutouts.send(
-                    f"🎉 {interaction.user.mention} just levelled up to **Level {close_result.new_level}** "
+                    f"🎉 <@{owner.discord_id}> just levelled up to **Level {close_result.new_level}** "
                     f"by closing ticket `{str(closed.id)[-8:]}`! +{close_result.xp_awarded} XP"
                 )
 
-        if close_result.badges:
-            closer_member = await MemberService(database.get_db()).get_by_discord_id(str(interaction.user.id))
-            if closer_member:
-                await post_badges_to_shoutouts(self.bot, closer_member, close_result.badges)
+        if close_result.badges and owner:
+            await post_badges_to_shoutouts(self.bot, owner, close_result.badges)
 
+        if owner:
+            xp_line = f"+{close_result.xp_awarded} XP awarded to **{owner.discord_name}**"
+        else:
+            xp_line = "No XP awarded because the ticket had no assignee"
         await interaction.followup.send(
-            f"Ticket `{str(closed.id)[-8:]}` closed. +{close_result.xp_awarded} XP awarded",
+            f"Ticket `{str(closed.id)[-8:]}` closed. {xp_line}",
             ephemeral=True
         )
 

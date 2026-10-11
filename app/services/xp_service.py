@@ -35,6 +35,10 @@ _XP_MAP: dict[str, int] = {
     "journal_entry": 5,
     "journal_mood": 2,
     "journal_adr": 15,
+    "track_checkpoint": 10,
+    "track_25pct": 15,
+    "track_50pct": 20,
+    "track_complete": 75,
 }
 
 _LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1400, 2000]
@@ -81,11 +85,13 @@ class XPService:
             self,
             member_id: str,
             action: str,
-            metadata: dict | None = None
+            metadata: dict | None = None,
+            xp_override: int | None = None
     ) -> XPAwardResult:
-        xp = _XP_MAP.get(action, 0)
-        if xp == 0:
+        if action not in _XP_MAP:
             log.warning("xp.unknown_action", action=action)
+        # xp_override is for actions whose value is set per row, e.g. a checkpoint's xp_value.
+        xp = xp_override if xp_override is not None else _XP_MAP.get(action, 0)
 
         def _insert_ledger():
             row: dict = {

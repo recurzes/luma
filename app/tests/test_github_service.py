@@ -72,3 +72,42 @@ async def test_process_pull_request_merged_calls_handle_pr_merged_with_correct_a
                 await svc.process_pull_request(event_row)
 
     merged_mock.assert_awaited_once_with(event_row, pr, author, "ticket:abcd1234")
+
+
+def test_count_any_violations_counts_added_typescript_lines_only():
+    from app.services.github_service import _count_any_violations
+
+    files = [
+        {"filename": "src/a.ts", "patch": "+const x: any = 1\n-const y: any = 2\n+// any in a comment\n+let z: any, w: any"},
+        {"filename": "src/b.py", "patch": "+any(x)"},
+        {"filename": "src/c.tsx", "patch": "+const company = 1"},
+    ]
+    assert _count_any_violations(files) == {"src/a.ts": 3}
+
+
+async def test_fetch_pr_files_is_none_without_token(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
+    assert await _make_svc()._fetch_pr_files("org/repo", 1) is None
+
+
+def test_pair_channels_are_recognised_by_their_markers():
+    import discord
+    from app.cogs.stuck import _is_pair_channel
+
+    def _text(name, topic):
+        ch = MagicMock(spec=discord.TextChannel)
+        ch.name, ch.topic = name, topic
+        return ch
+
+    def _voice(name):
+        ch = MagicMock(spec=discord.VoiceChannel)
+        ch.name = name
+        return ch
+
+    assert _is_pair_channel(_text("pair-auth-bug", "Pair session: auth bug"))
+    assert not _is_pair_channel(_text("pair-programming-tips", None))
+    assert not _is_pair_channel(_text("general", "Pair session: nope"))
+    assert _is_pair_channel(_voice("🎤 pair-auth bug"))
+    assert not _is_pair_channel(_voice("General"))

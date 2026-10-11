@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from supabase import Client
 
 from app.models.project import Project, ProjectCreate, ProjectMember
+from app.utils.db import row_or_none
 
 
 class ProjectService:
@@ -56,9 +57,10 @@ class ProjectService:
             .maybe_single()
             .execute()
         )
-        if not ctx.data or not ctx.data["active_project_id"]:
+        row = row_or_none(ctx)
+        if not row or not row["active_project_id"]:
             return None
-        return await self.get_by_id(UUID(ctx.data["active_project_id"]))
+        return await self.get_by_id(UUID(row["active_project_id"]))
 
 
     async def resolve_active_or_abort(
@@ -87,7 +89,8 @@ class ProjectService:
             .maybe_single()
             .execute()
         )
-        return Project(**result.data) if result.data else None
+        row = row_or_none(result)
+        return Project(**row) if row else None
 
 
     async def list_active(self, guild_id: str, member_id: UUID | None = None) -> list[Project]:

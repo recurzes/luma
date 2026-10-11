@@ -8,10 +8,12 @@ from supabase import Client
 from app.models.track import *
 from app.services.xp_service import XPService
 from app.services.badge_service import BadgeService
+from app.utils.short_id import parse_short_id, parse_uuid
+from app.utils.db import row_or_none
 
 from datetime import datetime, timezone, timedelta
 
-MILESTONE_XP = {25: 15, 50: 20, 100: 75}
+MILESTONE_ACTIONS = {25: "track_25pct", 50: "track_50pct", 100: "track_complete"}
 
 
 class TrackService:
@@ -34,7 +36,7 @@ class TrackService:
             })
             .execute()
         )
-        await self.badge_svc.check_and_award(member_id, trigger_event="track_enroll_first")
+        await self.badge_svc.check_and_award(str(member_id), trigger_event="track_enroll_first")
         return TrackProgress(**result.data[0])
 
 
@@ -60,7 +62,7 @@ class TrackService:
             .maybe_single()
             .execute()
         )
-        if already.data:
+        if row_or_none(already):
             raise ValueError("Checkpoint already completed")
 
         if checkpoint.answer_hash and answer:
@@ -91,13 +93,17 @@ class TrackService:
             update_payload
         ).eq("member_id", str(member_id)).eq("track_id", str(checkpoint.track_id)).execute()
 
-        xp = checkpoint.xp_value
-        await self.xp_svc.award(str(member_id), "track_checkpoint", {"xp": xp})
+        metadata = {"checkpoint_id": str(checkpoint_id)}
+        result = await self.xp_svc.award(
+            str(member_id), "track_checkpoint", metadata, xp_override=checkpoint.xp_value
+        )
+        xp = result.xp_awarded
 
-        for milestone_pct, bonus_xp in MILESTONE_XP.items():
-            if pct >= milestone_pct > (pct - (100 // total)):
-                await self.xp_svc.award(str(member_id), f"track_{milestone_pct}pct", {"bonus_xp": bonus_xp})
-                xp += bonus_xp
+        previous_pct = int(((new_count - 1) / total) * 100)
+        for milestone_pct, action in MILESTONE_ACTIONS.items():
+            if previous_pct < milestone_pct <= pct:
+                bonus = await self.xp_svc.award(str(member_id), action, metadata)
+                xp += bonus.xp_awarded
 
         if pct == 100:
             await self.badge_svc.check_and_award(str(member_id), trigger_event="track_complete")
@@ -125,7 +131,8 @@ class TrackService:
             .maybe_single()
             .execute()
         )
-        return TrackProgress(**result.data) if result.data else None
+        row = row_or_none(result)
+        return TrackProgress(**row) if row else None
 
 
     async def get_checkpoint(self, checkpoint_id: UUID) -> Checkpoint | None:
@@ -136,7 +143,8 @@ class TrackService:
             .maybe_single()
             .execute()
         )
-        return Checkpoint(**result.data) if result.data else None
+        row = row_or_none(result)
+        return Checkpoint(**row) if row else None
 
 
     async def get_next_checkpoint(self, member_id: UUID, track_id: UUID) -> Checkpoint | None:
@@ -151,6 +159,7 @@ class TrackService:
         checkpoints = (
             self.db.table("companion_track_checkpoints")
             .select("*")
+            .eq("track_id", str(track_id))
             .order("sequence")
             .execute()
         )
@@ -158,6 +167,41 @@ class TrackService:
             if cp["id"] not in done_set:
                 return Checkpoint(**cp)
         return None
+
+
+    async def find_checkpoint_by_short_id(self, member_id: UUID, value: str) -> Checkpoint | None:
+        """Resolve the 8-char ID shown in DMs, searching only the member's enrolled tracks.
+
+        The ID column is a UUID, which Postgres cannot ILIKE, so the prefix match happens here.
+        """
+        full_id = parse_uuid(value)
+        if full_id is not None:
+            return await self.get_checkpoint(full_id)
+
+        short_id = parse_short_id(value)
+        if short_id is None:
+            return None
+
+        enrolled = (
+            self.db.table("companion_member_track_progress")
+            .select("track_id")
+            .eq("member_id", str(member_id))
+            .execute()
+        )
+        track_ids = [r["track_id"] for r in enrolled.data]
+        if not track_ids:
+            return None
+
+        checkpoints = (
+            self.db.table("companion_track_checkpoints")
+            .select("*")
+            .in_("track_id", track_ids)
+            .execute()
+        )
+        matches = [cp for cp in checkpoints.data if cp["id"].lower().startswith(short_id)]
+        if len(matches) > 1:
+            raise ValueError(f"Checkpoint ID `{short_id}` matches more than one checkpoint")
+        return Checkpoint(**matches[0]) if matches else None
 
 
     async def get_stale_enrollments(self, inactive_days: int = 7) -> list[dict]:

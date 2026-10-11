@@ -9,6 +9,7 @@ from app.config import settings
 from app.models.journal import JournalEntry, JournalEntryCreate, ADR
 from app.services.xp_service import XPService
 from app.utils.time import start_of_today
+from app.utils.db import row_or_none
 import anthropic
 
 
@@ -63,7 +64,8 @@ class JournalService:
             .maybe_single()
             .execute()
         )
-        next_seq = (seq_result.data["sequence"] + 1) if seq_result.data else 1
+        last = row_or_none(seq_result)
+        next_seq = (last["sequence"] + 1) if last else 1
 
         content = (
             f"**ADR #{next_seq}: {title}**\n\n"

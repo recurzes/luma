@@ -325,3 +325,72 @@ async def test_legendary_unlocks_at_30():
 
 async def test_legendary_not_at_29():
     await _streak_check("legendary", "👑", 29, False)
+
+
+# ── Standup Champion: consecutive sessions ────────────────────────────────────
+
+def _standup_db(session_ids, responded_ids):
+    def _chain(rows):
+        chain = MagicMock()
+        chain.execute.return_value = MagicMock(data=rows)
+        for m in ("select", "eq", "in_", "order", "limit"):
+            getattr(chain, m).return_value = chain
+        return chain
+
+    tables = {
+        "bot_standup_sessions": _chain([{"id": s} for s in session_ids]),
+        "bot_standup_responses": _chain([{"session_id": s} for s in responded_ids]),
+    }
+    db = MagicMock()
+    db.table = lambda name: tables[name]
+    return db
+
+
+async def test_standup_champion_needs_every_recent_session():
+    sessions = [str(uuid4()) for _ in range(7)]
+    assert await _make_svc(_standup_db(sessions, sessions))._check_standup_champion(_MEMBER_ID) is True
+    assert await _make_svc(_standup_db(sessions, sessions[1:]))._check_standup_champion(_MEMBER_ID) is False
+
+
+async def test_standup_champion_needs_seven_sessions_to_exist():
+    sessions = [str(uuid4()) for _ in range(6)]
+    assert await _make_svc(_standup_db(sessions, sessions))._check_standup_champion(_MEMBER_ID) is False
+
+
+# ── No any Club: only scanned-clean PRs count ─────────────────────────────────
+
+async def test_no_any_club_ignores_flagged_and_unscanned_prs():
+    clean = [{"metadata": {"any_flag": False}}] * 10
+    assert await _make_svc(_make_db(ledger_data=clean))._check_no_any_club(_MEMBER_ID) is True
+
+    mixed = clean[:9] + [{"metadata": {"any_flag": True}}, {"metadata": {"any_flag": None}}, {"metadata": None}]
+    assert await _make_svc(_make_db(ledger_data=mixed))._check_no_any_club(_MEMBER_ID) is False
+
+
+# ── Event badges and the announce hook ────────────────────────────────────────
+
+async def test_event_badge_is_awarded_and_announced():
+    from unittest.mock import patch, AsyncMock
+    from app.models.badge import BadgeDefinition
+
+    announce = AsyncMock()
+    svc = BadgeService(_make_db(), XPService(_make_db()), announce=announce)
+    defn = BadgeDefinition(id=uuid4(), key="track_graduate", name="Track Graduate",
+                           description="Completed a track", emoji="🎓", trigger="Track reaches 100%")
+    with patch.object(svc, "_get_definition", AsyncMock(return_value=defn)), \
+            patch.object(svc, "_already_earned", AsyncMock(return_value=False)), \
+            patch.object(svc, "_award", AsyncMock(return_value=True)):
+        badges = await svc.check_and_award(_MEMBER_ID, "track_complete")
+
+    assert [b.key for b in badges] == ["track_graduate"]
+    announce.assert_awaited_once_with(_MEMBER_ID, badges)
+
+
+def test_every_trigger_badge_has_a_rule():
+    import inspect
+    from app.services import badge_service
+
+    source = inspect.getsource(BadgeService._check_single)
+    for keys in badge_service._TRIGGER_MAP.values():
+        for key in keys:
+            assert f'"{key}"' in source or key in badge_service._EVENT_BADGES, key

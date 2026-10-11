@@ -43,7 +43,7 @@ class StuckService:
         log.info("stuck.thread.opened", thread_id=str(thread.id), requester=requester_id)
         return thread
 
-    async def resolve(self, thread_id: str, helper_id: str, notes: str = "") -> HelpThread:
+    async def resolve(self, thread_id: str, helper_id: str | None, notes: str = "") -> HelpThread:
         now = datetime.now(timezone.utc).isoformat()
 
         def _update():
@@ -59,7 +59,9 @@ class StuckService:
             raise ValueError(f"Thread {thread_id!r} not found")
 
         thread = self._parse(result.data[0])
-        await self._xp.award(helper_id, "helped_stuck", metadata={"thread_id": thread_id})
+        # Solving your own thread is not helping someone.
+        if helper_id and helper_id != str(thread.requester_id):
+            await self._xp.award(helper_id, "helped_stuck", metadata={"thread_id": thread_id})
         _bumped_15.discard(thread_id)
         log.info("stuck.thread.resolved", thread_id=thread_id, helper=helper_id)
         return thread
@@ -93,6 +95,20 @@ class StuckService:
 
         result = await self._run(_fetch)
         return [self._parse(r) for r in result.data]
+
+    async def get_unresolved_by_discord_thread(self, discord_thread_id: str) -> HelpThread | None:
+        def _fetch():
+            return (
+                self._db.table("bot_help_threads")
+                .select("*")
+                .eq("discord_thread_id", discord_thread_id)
+                .in_("status", ["open", "escalated"])
+                .limit(1)
+                .execute()
+            )
+
+        result = await self._run(_fetch)
+        return self._parse(result.data[0]) if result.data else None
 
     async def get_overdue_threads(self, minutes: int) -> list[HelpThread]:
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
