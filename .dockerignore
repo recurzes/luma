@@ -1,0 +1,24 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# VCS, tooling, local state
+.git
+.github
+.idea
+.vscode
+.venv
+.claude
+notes/
+
+# Python build output
+__pycache__/
+*.py[oc]
+.pytest_cache/
+build/
+dist/
+*.egg-info
+
+# Not needed at runtime
+app/tests/
