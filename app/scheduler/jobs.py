@@ -72,6 +72,7 @@ def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot)
     scheduler.add_job(
         cog._streak_check_job,
         "cron",
+        day_of_week="mon-fri",
         hour=23,
         minute=50,
         id="streak_check",
@@ -80,6 +81,7 @@ def _register_xp_jobs(scheduler: AsyncIOScheduler, bot: commands.AutoShardedBot)
     scheduler.add_job(
         cog._streak_risk_dm_job,
         "cron",
+        day_of_week="mon-fri",
         hour=20,
         minute=0,
         id="streak_risk_dm",

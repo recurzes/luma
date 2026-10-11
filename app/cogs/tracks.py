@@ -20,7 +20,7 @@ from app.embeds.track_embed import *
 from app.models.track import TrackProgress, Track, Checkpoint, CheckpointCompletion
 from app.utils.badge_broadcast import make_badge_announcer
 from app.utils.guards import require_member, staff_only
-from app.utils.db import row_or_none
+from app.utils.db import row_or_none, run_query
 
 import bcrypt
 
@@ -60,11 +60,10 @@ class TrackCog(commands.GroupCog, name="track"):
         tracks = await svc.list_tracks()
 
         db = database.get_db()
-        progress_result = (
+        progress_result = await run_query(
             db.table("companion_member_track_progress")
             .select("*")
             .eq("member_id", str(member.id))
-            .execute()
         )
 
         progress_rows = {r["track_id"]: TrackProgress(**r) for r in progress_result.data}
@@ -132,11 +131,10 @@ class TrackCog(commands.GroupCog, name="track"):
             return
 
         db = database.get_db()
-        progresss_result = (
+        progresss_result = await run_query(
             db.table("companion_member_track_progress")
             .select("*")
             .eq("member_id", str(member.id))
-            .execute()
         )
 
         if not progresss_result.data:
@@ -152,12 +150,11 @@ class TrackCog(commands.GroupCog, name="track"):
         for row in progresss_result.data:
             prog = TrackProgress(**row)
 
-            track_result = (
+            track_result = await run_query(
                 db.table("companion_tracks")
                 .select("*")
                 .eq("id", row["track_id"])
                 .maybe_single()
-                .execute()
             )
             track_row = row_or_none(track_result)
             if not track_row:
@@ -221,24 +218,22 @@ class TrackCog(commands.GroupCog, name="track"):
             await interaction.followup.send("Something went wrong. Try again", ephemeral=True)
             return
 
-        track_result = (
+        track_result = await run_query(
             db.table("companion_tracks")
             .select("*")
             .eq("id", str(track_id))
             .maybe_single()
-            .execute()
         )
         track_row = row_or_none(track_result)
         track = Track(**track_row) if track_row else None
         track_name = track.name if track else "Unknown track"
 
-        progress_result = (
+        progress_result = await run_query(
             db.table("companion_member_track_progress")
             .select("completed_at")
             .eq("member_id", str(member.id))
             .eq("track_id", str(track_id))
             .maybe_single()
-            .execute()
         )
         progress_row = row_or_none(progress_result)
         is_complete = bool(progress_row and progress_row.get("completed_at"))
@@ -298,7 +293,7 @@ class TrackCog(commands.GroupCog, name="track"):
         except RuntimeError:
             return
 
-        result = (
+        result = await run_query(
             db.table("companion_tracks")
             .insert({
                 "name": name,
@@ -307,7 +302,6 @@ class TrackCog(commands.GroupCog, name="track"):
                 "created_by": str(member.id),
                 "is_builtin": False
             })
-            .execute()
         )
 
         track = Track(**result.data[0])
@@ -341,12 +335,11 @@ class TrackCog(commands.GroupCog, name="track"):
 
         db = database.get_db()
 
-        track_result = (
+        track_result = await run_query(
             db.table("companion_tracks")
             .select("*")
             .ilike("name", track_name)
             .maybe_single()
-            .execute()
         )
         track_row = row_or_none(track_result)
         if not track_row:
@@ -372,17 +365,16 @@ class TrackCog(commands.GroupCog, name="track"):
                 bcrypt.gensalt()
             ).decode()
 
-        seq_result = (
+        seq_result = await run_query(
             db.table("companion_track_checkpoints")
             .select("sequence")
             .eq("track_id", track_id)
             .order("sequence", desc=True)
             .limit(1)
-            .execute()
         )
         next_seq = (seq_result.data[0]["sequence"] + 1) if seq_result.data else 1
 
-        cp_result = (
+        cp_result = await run_query(
             db.table("companion_track_checkpoints")
             .insert({
                 "track_id": track_id,
@@ -394,7 +386,6 @@ class TrackCog(commands.GroupCog, name="track"):
                 "answer_hash": answer_hash,
                 "xp_value": xp
             })
-            .execute()
         )
 
         checkpoint = Checkpoint(**cp_result.data[0])

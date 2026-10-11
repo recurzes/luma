@@ -9,7 +9,7 @@ from app.config import settings
 from app.models.journal import JournalEntry, JournalEntryCreate, ADR
 from app.services.xp_service import XPService
 from app.utils.time import start_of_today
-from app.utils.db import row_or_none
+from app.utils.db import row_or_none, run_query
 import anthropic
 
 
@@ -22,7 +22,7 @@ class JournalService:
 
     # Entries
     async def add_entry(self, payload: JournalEntryCreate) -> JournalEntry:
-        result = (
+        result = await run_query(
             self.db.table("companion_journal_entries")
             .insert({
                 "member_id": str(payload.member_id),
@@ -32,7 +32,6 @@ class JournalService:
                 "mood": payload.mood,
                 "tags": payload.tags or []
             })
-            .execute()
         )
         entry = JournalEntry(**result.data[0])
 
@@ -55,14 +54,13 @@ class JournalService:
             decision: str,
             alternatives: str | None = None
     ) -> tuple[JournalEntry, ADR]:
-        seq_result = (
+        seq_result = await run_query(
             self.db.table("companion_adrs")
             .select("sequence")
             .eq("project_id", str(project_id))
             .order("sequence.desc")
             .limit(1)
             .maybe_single()
-            .execute()
         )
         last = row_or_none(seq_result)
         next_seq = (last["sequence"] + 1) if last else 1
@@ -83,7 +81,7 @@ class JournalService:
             tags=["#adr"]
         ))
 
-        addr_result = (
+        addr_result = await run_query(
             self.db.table("companion_adrs")
             .insert({
                 "entry_id": str(entry.id),
@@ -95,7 +93,6 @@ class JournalService:
                 "alternatives": alternatives,
                 "status": "proposed"
             })
-            .execute()
         )
         adr = ADR(**addr_result.data[0])
 
@@ -117,7 +114,7 @@ class JournalService:
         )
         if project_id:
             query = query.eq("project_id", str(project_id))
-        result = query.execute()
+        result = await run_query(query)
         return [JournalEntry(**r) for r in result.data]
 
 
@@ -132,26 +129,25 @@ class JournalService:
         )
         if project_id:
             query = query.eq("project_id", str(project_id))
-        result = query.execute()
+        result = await run_query(query)
         return [JournalEntry(**r) for r in result.data]
 
 
     async def search(self, member_id: UUID, query_text: str, project_id: UUID | None = None) -> list[JournalEntry]:
-        result = self.db.rpc("journal_fts_search", {
+        result = await run_query(self.db.rpc("journal_fts_search", {
             "p_member_id": str(member_id),
             "p_project_id": str(project_id) if project_id else None,
             "p_query": query_text
-        }).execute()
+        }))
         return [JournalEntry(**r) for r in result.data]
 
 
     async def list_adrs(self, project_id: UUID) -> list[ADR]:
-        result = (
+        result = await run_query(
             self.db.table("companion_adrs")
             .select("*")
             .eq("project_id", str(project_id))
             .order("sequence")
-            .execute()
         )
         return [ADR(**r) for r in result.data]
 
@@ -164,16 +160,22 @@ class JournalService:
             sprint_start: datetime,
             sprint_end: datetime
     ) -> str:
-        entries = (
+        result = await run_query(
             self.db.table("companion_journal_entries")
             .select("*")
             .eq("member_id", str(member_id))
             .eq("project_id", str(project_id))
             .gte("created_at", sprint_start.isoformat())
-            .lte("created_at", sprint_start.isoformat())
+            .lte("created_at", sprint_end.isoformat())
             .order("created_at")
-            .execute()
         )
+        entries = [JournalEntry(**r) for r in result.data]
+
+        # Only this member's decisions from this sprint: ADRs link back to their journal entry.
+        entry_ids = {e.id for e in entries}
+        adrs = [a for a in await self.list_adrs(project_id) if a.entry_id in entry_ids]
+
+        return self._rule_based_synthesis(entries, adrs)
 
 
     async def _ai_synthesis(self, entries: list[JournalEntry], adrs: list[ADR]) -> str:
@@ -222,7 +224,6 @@ class JournalService:
         mood_str = f"{avg_mood:.1f}/5" if avg_mood else "not logged"
 
         return (
-            f"**Sprint Journal Summary**\n"
             f"{len(entries)} entries · Mood avg: {mood_str}\n\n"
             f"**Key decisions:**\n{adr_lines}\n\n"
             f"**Recurring themes:** {tag_str}"
@@ -231,11 +232,10 @@ class JournalService:
 
     # Helpers
     async def _entry_count_today(self, member_id: UUID) -> int:
-        result = (
+        result = await run_query(
             self.db.table("companion_journal_entries")
             .select("id", count="exact")
             .eq("member_id", str(member_id))
             .gte("created_at", start_of_today().isoformat())
-            .execute()
         )
         return result.count or 0

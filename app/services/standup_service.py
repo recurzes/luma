@@ -103,13 +103,14 @@ class StandupService:
         streak = StreakService(self._db, self._members)
         badge_svc = BadgeService(self._db, self._xp)
         badges = await badge_svc.check_and_award(member_id, "standup")
+        # Record first so the streak badges see today's count.
+        await streak.record_activity(member_id, "standup")
         streak_n = await get_current_streak(self._db, member_id)
         badges.extend(
             await badge_svc.check_and_award(
                 member_id, "streak_check", {"current_streak": streak_n}
             )
         )
-        await streak.record_activity(member_id, "standup")
 
         log.info("standup.response_saved", member_id=member_id, session_id=session_id)
         return response, badges

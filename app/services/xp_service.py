@@ -72,6 +72,7 @@ class XPAwardResult:
     new_level: int
     level_up: bool
     xp_awarded: int
+    duplicate: bool = False
 
 
 class XPService:
@@ -86,12 +87,51 @@ class XPService:
             member_id: str,
             action: str,
             metadata: dict | None = None,
-            xp_override: int | None = None
+            xp_override: int | None = None,
+            dedupe_key: str | None = None
     ) -> XPAwardResult:
+        """Award XP for `action`.
+
+        `dedupe_key` makes the award idempotent: a second call with the same member, action
+        and key awards nothing. Use it wherever the caller may be retried (GitHub events).
+        """
         if action not in _XP_MAP:
             log.warning("xp.unknown_action", action=action)
         # xp_override is for actions whose value is set per row, e.g. a checkpoint's xp_value.
         xp = xp_override if xp_override is not None else _XP_MAP.get(action, 0)
+
+        def _fetch_stats():
+            return (
+                self._db.table("bot_member_stats")
+                .select("total_xp, level")
+                .eq("member_id", member_id)
+                .limit(1)
+                .execute()
+            )
+
+        if dedupe_key is not None:
+            def _already_awarded():
+                return (
+                    self._db.table("bot_xp_ledger")
+                    .select("id")
+                    .eq("member_id", member_id)
+                    .eq("action", action)
+                    .eq("metadata->>dedupe_key", dedupe_key)
+                    .limit(1)
+                    .execute()
+                )
+
+            if (await self._run(_already_awarded)).data:
+                stats = (await self._run(_fetch_stats)).data
+                log.info("xp.duplicate_skipped", member_id=member_id, action=action, dedupe_key=dedupe_key)
+                return XPAwardResult(
+                    new_total=stats[0]["total_xp"] if stats else 0,
+                    new_level=stats[0]["level"] if stats else 1,
+                    level_up=False,
+                    xp_awarded=0,
+                    duplicate=True
+                )
+            metadata = {**(metadata or {}), "dedupe_key": dedupe_key}
 
         def _insert_ledger():
             row: dict = {
@@ -105,15 +145,6 @@ class XPService:
             return self._db.table("bot_xp_ledger").insert(row).execute()
 
         await self._run(_insert_ledger)
-
-        def _fetch_stats():
-            return (
-                self._db.table("bot_member_stats")
-                .select("total_xp, level")
-                .eq("member_id", member_id)
-                .limit(1)
-                .execute()
-            )
 
         stats_result = await self._run(_fetch_stats)
         if stats_result.data:

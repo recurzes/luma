@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app.config import settings
@@ -20,3 +20,11 @@ def today() -> date:
 
 def start_of_today() -> datetime:
     return datetime.combine(today(), time.min, tzinfo=tz())
+
+
+def previous_working_day(day: date) -> date:
+    """The most recent Monday-Friday before `day`."""
+    previous = day - timedelta(days=1)
+    while previous.weekday() >= 5:
+        previous -= timedelta(days=1)
+    return previous

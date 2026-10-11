@@ -31,6 +31,8 @@ log = structlog.get_logger()
 _ANY_RE = re.compile(r'\bany\b')
 _COMMENT_LINE_RE = re.compile(r'^\+\s*(?://|/\*|\*)')
 
+MAX_EVENT_ATTEMPTS = 5
+
 _FILES_PER_PAGE = 100
 _MAX_FILE_PAGES = 10
 
@@ -118,12 +120,62 @@ class GitHubService:
         }
         handler = handlers.get(event_type)
         if handler:
-            try:
-                await handler(event_row)
-            except Exception as e:
-                log.error("github.dispatch.error", event_type=event_type, error=str(e))
+            # Errors propagate so process_pending can leave the event queued for a retry.
+            await handler(event_row)
         else:
             log.debug("github.dispatch.unknown", event_type=event_type)
+
+    # Event queue: bot_github_events rows stay pending until a handler finishes cleanly.
+
+    async def fetch_pending_events(self, limit: int = 50) -> list[dict]:
+        def _fetch():
+            return (
+                self._db.table("bot_github_events")
+                .select("*")
+                .is_("processed_at", "null")
+                .lt("attempts", MAX_EVENT_ATTEMPTS)
+                .order("received_at", desc=False)
+                .limit(limit)
+                .execute()
+            )
+
+        return (await self._run(_fetch)).data
+
+    async def _mark_event(self, event_id: str, fields: dict) -> None:
+        def _update():
+            return (
+                self._db.table("bot_github_events")
+                .update(fields)
+                .eq("id", event_id)
+                .execute()
+            )
+
+        await self._run(_update)
+
+    async def process_pending(self, limit: int = 50) -> tuple[int, int]:
+        """Dispatch pending events oldest first. Returns (processed, failed)."""
+        processed = failed = 0
+        for event in await self.fetch_pending_events(limit):
+            event_id = event["id"]
+            try:
+                await self.dispatch(event)
+            except Exception as e:
+                attempts = (event.get("attempts") or 0) + 1
+                failed += 1
+                log.error(
+                    "github.dispatch.error",
+                    event_id=event_id,
+                    event_type=event.get("event_type"),
+                    attempts=attempts,
+                    gave_up=attempts >= MAX_EVENT_ATTEMPTS,
+                    error=str(e)
+                )
+                await self._mark_event(event_id, {"attempts": attempts, "last_error": str(e)[:500]})
+                continue
+
+            await self._mark_event(event_id, {"processed_at": datetime.now(timezone.utc).isoformat()})
+            processed += 1
+        return processed, failed
 
     # Operations
     async def process_push(self, event_row: dict) -> None:
@@ -135,8 +187,11 @@ class GitHubService:
         member = await self.get_member_by_github(pusher)
 
         if member:
-            for _ in commits:
-                await self._xp.award(str(member.id), "commit", metadata={"branch": branch})
+            for commit in commits:
+                await self._xp.award(
+                    str(member.id), "commit", metadata={"branch": branch},
+                    dedupe_key=_event_key(event_row, commit.get("id"))
+                )
             await self._streak.record_activity(str(member.id), "commit")
 
             streak_n = await get_current_streak(self._db, str(member.id))
@@ -219,13 +274,15 @@ class GitHubService:
             any_flag = None if files is None else bool(_count_any_violations(files))
 
             xp_result = await self._xp.award(
-                str(author_member.id), "pr_merged", metadata={"pr_number": pr_number, "any_flag": any_flag}
+                str(author_member.id), "pr_merged", metadata={"pr_number": pr_number, "any_flag": any_flag},
+                dedupe_key=_event_key(event_row)
             )
             await self._streak.record_activity(str(author_member.id), "pr_merged")
             if xp_result.level_up:
                 await self._announce_level_up(author_member, xp_result)
 
-            await self._increment_stat(str(author_member.id), "prs_merged")
+            if not xp_result.duplicate:
+                await self._increment_stat(str(author_member.id), "prs_merged")
 
             badges = await BadgeService(self._db, self._xp).check_and_award(
                 str(author_member.id),
@@ -276,8 +333,12 @@ class GitHubService:
         await self._post_to_channel("github_feed", embed)
 
         if reviewer_member:
-            await self._xp.award(str(reviewer_member.id), "pr_reviewed", metadata={"pr_number": pr.get("number")})
-            await self._increment_stat(str(reviewer_member.id), "helps_given")
+            xp_result = await self._xp.award(
+                str(reviewer_member.id), "pr_reviewed", metadata={"pr_number": pr.get("number")},
+                dedupe_key=_event_key(event_row)
+            )
+            if not xp_result.duplicate:
+                await self._increment_stat(str(reviewer_member.id), "helps_given")
 
     # CI
 
@@ -436,6 +497,14 @@ class GitHubService:
             color=discord.Color.gold()
         )
         await self._post_to_channel("shoutouts", embed)
+
+
+def _event_key(event_row: dict, part: str | None = None) -> str | None:
+    """XP dedupe key for a stored event, so a retried event cannot award twice."""
+    event_id = event_row.get("id")
+    if event_id is None:
+        return None
+    return f"{event_id}:{part}" if part else str(event_id)
 
 
 def _count_any_violations(files: list[dict]) -> dict[str, int]:
