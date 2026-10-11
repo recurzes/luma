@@ -244,6 +244,17 @@ class BlitzService:
         if not session or session.status not in ("active", "showcase"):
             raise ValueError("Showcase submissions are closed")
 
+        # Re-submitting edits the showcase; XP and badges are for the first one only.
+        existing = (
+            self.db.table("companion_blitz_showcases")
+            .select("id")
+            .eq("blitz_id", str(blitz_id))
+            .eq("member_id", str(member_id))
+            .limit(1)
+            .execute()
+        )
+        is_first = _first_row(existing) is None
+
         result = (
             self.db.table("companion_blitz_showcases")
             .upsert({
@@ -264,6 +275,8 @@ class BlitzService:
         row = _first_row(result)
         if row is None:
             raise ValueError("Failed to submit showcase")
+        if not is_first:
+            return BlitzShowcase(**row)
 
         await self.xp_svc.award(str(member_id), "blitz_showcase")
         await self.badge_svc.check_and_award(str(member_id), trigger_event="blitz_showcase_first")

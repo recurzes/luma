@@ -20,6 +20,10 @@ log = structlog.get_logger()
 
 _active_sprint: dict | None = None
 
+# /shoutout and /share each award XP, so cap them per user: 3 uses per hour.
+_XP_COMMAND_RATE = 3
+_XP_COMMAND_PER_SECONDS = 3600.0
+
 
 class CultureCog(commands.GroupCog, name="culture"):
     sprint = app_commands.Group(name="sprint", description="Sprint challenge commands")
@@ -37,6 +41,7 @@ class CultureCog(commands.GroupCog, name="culture"):
 
     @app_commands.command(name="shoutout", description="Give a shoutout to a teammate")
     @app_commands.describe(member="Who you're shouting out", reason="Why they deserve it")
+    @app_commands.checks.cooldown(_XP_COMMAND_RATE, _XP_COMMAND_PER_SECONDS, key=lambda i: i.user.id)
     async def shoutout(
             self,
             interaction: discord.Interaction,
@@ -89,6 +94,7 @@ class CultureCog(commands.GroupCog, name="culture"):
 
     @app_commands.command(name="share", description="Share a tip or resource with the team")
     @app_commands.describe(tip="Your tip or resource", link="Optional URL")
+    @app_commands.checks.cooldown(_XP_COMMAND_RATE, _XP_COMMAND_PER_SECONDS, key=lambda i: i.user.id)
     async def share(
             self,
             interaction: discord.Interaction,

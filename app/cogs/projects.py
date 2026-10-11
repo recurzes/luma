@@ -6,7 +6,7 @@ from app import database
 from app.services.project_service import ProjectService
 from app.embeds.project_embed import *
 from app.models.project import ProjectCreate
-from app.utils.guards import require_member
+from app.utils.guards import require_member, staff_only
 
 
 class ProjectsCog(commands.GroupCog, name="project"):
@@ -85,7 +85,7 @@ class ProjectsCog(commands.GroupCog, name="project"):
         )
 
     @app_commands.command(name="archive", description="Archive a completed project")
-    @app_commands.checks.has_any_role("Lead", "Professor")
+    @staff_only()
     async def archive(self, interaction: discord.Interaction, name: str):
         await interaction.response.defer(ephemeral=True)
         projects = await self.project_svc.list_active(str(interaction.guild_id))
@@ -118,7 +118,7 @@ class ProjectsCog(commands.GroupCog, name="project"):
         await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="link-repo", description="Link a GitHub repo to this project")
-    @app_commands.checks.has_any_role("Lead", "Professor")
+    @staff_only()
     @app_commands.describe(url="GitHub repository URL")
     async def link_repo(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(ephemeral=True)

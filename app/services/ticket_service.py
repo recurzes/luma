@@ -11,11 +11,13 @@ from supabase import Client
 from watchfiles import awatch
 
 from app.models.badge import Badge
+from app.models.member import Member
 from app.models.ticket import Ticket, TicketCreate, TierViolationError
 from app.services.badge_service import BadgeService
 from app.services.member_service import MemberService
 from app.services.xp_service import XPService
 from app.utils.badge_broadcast import get_current_streak
+from app.utils.short_id import parse_short_id, parse_uuid
 
 log = structlog.get_logger()
 
@@ -31,6 +33,7 @@ class CloseResult:
     new_level: int = 1
     level_up: bool = False
     badges: list[Badge] = field(default_factory=list)
+    awarded_to: Member | None = None
 
 
 @dataclass
@@ -61,36 +64,37 @@ class TicketService:
         return await asyncio.get_event_loop().run_in_executor(None, fn)
 
     async def _get_by_id(self, ticket_id: str) -> Ticket | None:
+        full_id = parse_uuid(ticket_id)
+        if full_id is not None:
+            def _exact():
+                return (
+                    self._db.table("bot_tickets")
+                    .select("*")
+                    .eq("id", str(full_id))
+                    .limit(1)
+                    .execute()
+                )
+
+            result = await self._run(_exact)
+            return self._parse(result.data[0]) if result.data else None
+
+        short_id = parse_short_id(ticket_id)
+        if short_id is None:
+            return None
+
         def _suffix():
             return (
                 self._db.table("bot_tickets")
                 .select("*")
-                .ilike("id_text", f"%{ticket_id}")
-                .limit(1)
+                .ilike("id_text", f"%{short_id}")
+                .limit(2)
                 .execute()
             )
-
-        if len(ticket_id) < 36:
-            result = await self._run(_suffix)
-            return self._parse(result.data[0]) if result.data else None
-
-        def _exact():
-            return (
-                self._db.table("bot_tickets")
-                .select("*")
-                .eq("id", ticket_id)
-                .limit(1)
-                .execute()
-            )
-
-        result = await self._run(_exact)
-        if result.data:
-            return self._parse(result.data[0])
 
         result = await self._run(_suffix)
-        if not result.data:
-            return None
-        return self._parse(result.data[0])
+        if len(result.data) > 1:
+            raise ValueError(f"Ticket ID `{short_id}` matches more than one ticket. Use the full ID")
+        return self._parse(result.data[0]) if result.data else None
 
 
     # Public API
@@ -285,6 +289,8 @@ class TicketService:
         ticket = await self._get_by_id(ticket_id)
         if ticket is None:
             raise ValueError(f"Ticket {ticket_id!r} not found")
+        if ticket.status == "done":
+            raise ValueError(f"Ticket `{str(ticket.id)[-8:]}` is already closed")
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -299,9 +305,11 @@ class TicketService:
         result = await self._run(_close)
         closed = self._parse(result.data[0])
 
-        closer = await self._members.get_by_discord_id(closed_by_discord_id)
-        if closer:
-            await self._increment_tickets_closed(str(closer.id))
+        # Credit goes to whoever did the work (the assignee), not whoever ran the command.
+        # An unassigned ticket earns nothing, so create-then-close cannot be farmed.
+        owner = await self._members.get_by_id(str(closed.assignee_id)) if closed.assignee_id else None
+        if owner:
+            await self._increment_tickets_closed(str(owner.id))
 
         badges: list[Badge] = []
         xp_svc = self._xp
@@ -309,24 +317,29 @@ class TicketService:
         badge_svc = BadgeService(self._db, badge_xp)
 
         xp_result = None
-        if self._xp and closer:
+        if self._xp and owner:
             action = f"close_{closed.tier.lower()}"
-            xp_result = await xp_svc.award(str(closer.id), action, metadata={"ticket_id": str(closed.id)})
+            xp_result = await xp_svc.award(str(owner.id), action, metadata={"ticket_id": str(closed.id)})
             clutch_ctx = closed.model_dump(mode="json")
             badges.extend(
-                await badge_svc.check_and_award(str(closer.id), action, {"ticket": clutch_ctx})
+                await badge_svc.check_and_award(str(owner.id), action, {"ticket": clutch_ctx})
             )
 
-        if self._streak and closer:
-            await self._streak.record_activity(str(closer.id), "ticket_closed")
-            streak_n = await get_current_streak(self._db, str(closer.id))
+        if self._streak and owner:
+            await self._streak.record_activity(str(owner.id), "ticket_closed")
+            streak_n = await get_current_streak(self._db, str(owner.id))
             badges.extend(
                 await badge_svc.check_and_award(
-                    str(closer.id), "streak_check", {"current_streak": streak_n}
+                    str(owner.id), "streak_check", {"current_streak": streak_n}
                 )
             )
 
-        log.info("ticket.closed", ticket_id=str(closed.id), closed_by=closed_by_discord_id)
+        log.info(
+            "ticket.closed",
+            ticket_id=str(closed.id),
+            closed_by=closed_by_discord_id,
+            credited=str(owner.id) if owner else None
+        )
 
         if xp_result:
             return CloseResult(
@@ -334,9 +347,10 @@ class TicketService:
                 xp_awarded=xp_result.xp_awarded,
                 new_level=xp_result.new_level,
                 level_up=xp_result.level_up,
-                badges=badges
+                badges=badges,
+                awarded_to=owner
             )
-        return CloseResult(ticket=closed)
+        return CloseResult(ticket=closed, badges=badges, awarded_to=owner)
 
     async def _increment_tickets_closed(self, member_id: str) -> None:
         def _fetch_stats():

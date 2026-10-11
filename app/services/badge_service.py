@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone, timedelta
 from dateutil.parser import parse as parse_dt
 
@@ -20,15 +21,30 @@ _TRIGGER_MAP: dict[str, list[str]] = {
     "close_t1":      ["clutch_coder"],
     "close_t2":      ["clutch_coder"],
     "close_t3":      ["clutch_coder"],
-    "pr_merged": ["shit_it", "no_any_club"],
-    "knowledge_drop": ["knowledge_dealer"]
+    "pr_merged": ["ship_it", "no_any_club"],
+    "knowledge_drop": ["knowledge_dealer"],
+    "blitz_join_first": ["blitz_rookie"],
+    "blitz_showcase_first": ["show_and_tell"],
+    "blitz_speed_learner": ["speed_learner"],
+    "track_enroll_first": ["trailhead"],
+    "track_complete": ["track_graduate"],
 }
+
+# Earned the first time their trigger fires; the caller has already checked the condition.
+_EVENT_BADGES = {"blitz_rookie", "show_and_tell", "speed_learner", "trailhead", "track_graduate"}
+
+_STANDUP_CHAMPION_RUN = 7
+_NO_ANY_CLUB_PRS = 10
+
+BadgeAnnouncer = Callable[[str, list[Badge]], Awaitable[None]]
 
 
 class BadgeService:
-    def __init__(self, db: Client, xp: XPService):
+    def __init__(self, db: Client, xp: XPService, announce: BadgeAnnouncer | None = None):
         self._db = db
         self._xp = xp
+        # For callers that discard check_and_award's result (blitz, tracks).
+        self._announce = announce
 
     async def _run(self, fn):
         return await asyncio.get_event_loop().run_in_executor(None, fn)
@@ -100,6 +116,9 @@ class BadgeService:
             if earned:
                 awarded.append(earned)
 
+        if awarded and self._announce:
+            await self._announce(member_id, awarded)
+
         return awarded
 
     async def get_member_badges(self, member_id: str) -> list[Badge]:
@@ -159,12 +178,14 @@ class BadgeService:
                 unlocked = self._check_clutch_coder(ticket)
         elif key == "ship_it":
             unlocked = self._check_ship_it(
-                context.get("pr_opened_at", context.get("pr_merged_at"))
+                context.get("pr_opened_at"), context.get("pr_merged_at")
             )
         elif key == "no_any_club":
             unlocked = await self._check_no_any_club(member_id)
         elif key == "knowledge_dealer":
             unlocked = await self._check_knowledge_dealer(member_id)
+        elif key in _EVENT_BADGES:
+            unlocked = True
 
         if not unlocked:
             return None
@@ -200,19 +221,32 @@ class BadgeService:
         return (result.count or 0) >= 5
 
     async def _check_standup_champion(self, member_id: str) -> bool:
-        def _fetch():
+        """Consecutive means a response in each of the most recent standup sessions."""
+        def _recent_sessions():
             return (
-                self._db.table("bot_xp_ledger")
-                .select("awarded_at")
-                .eq("member_id", member_id)
-                .eq("action", "standup")
-                .order("awarded_at", desc=True)
-                .limit(7)
+                self._db.table("bot_standup_sessions")
+                .select("id")
+                .order("date", desc=True)
+                .limit(_STANDUP_CHAMPION_RUN)
                 .execute()
             )
 
-        result = await self._run(_fetch)
-        return len(result.data) >= 7
+        sessions = await self._run(_recent_sessions)
+        session_ids = [r["id"] for r in sessions.data]
+        if len(session_ids) < _STANDUP_CHAMPION_RUN:
+            return False
+
+        def _responses():
+            return (
+                self._db.table("bot_standup_responses")
+                .select("session_id")
+                .eq("member_id", member_id)
+                .in_("session_id", session_ids)
+                .execute()
+            )
+
+        responses = await self._run(_responses)
+        return {r["session_id"] for r in responses.data} == set(session_ids)
 
     async def _check_helpful_human(self, member_id: str) -> bool:
         def _count():
@@ -265,11 +299,12 @@ class BadgeService:
             )
 
         result = await self._run(_fetch)
+        # Only PRs whose diff was actually scanned count; any_flag is None when it could not be.
         clean_prs = [
             r for r in result.data
-            if not (r.get("metadata") or {}).get("any_flag", False)
+            if (r.get("metadata") or {}).get("any_flag") is False
         ]
-        return len(clean_prs) >= 10
+        return len(clean_prs) >= _NO_ANY_CLUB_PRS
 
     async def _check_knowledge_dealer(self, member_id: str) -> bool:
         def _count():

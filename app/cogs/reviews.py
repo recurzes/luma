@@ -11,7 +11,7 @@ from app import database
 from app.config import settings
 from app.services.member_service import MemberService
 from app.services.ticket_service import TicketService
-from app.utils.guards import require_member
+from app.utils.guards import require_member, staff_only
 
 log = structlog.get_logger()
 
@@ -23,13 +23,14 @@ class ReviewCog(commands.GroupCog, name="review"):
         super().__init__()
 
 
-    @app_commands.command(name="assign", description="Manually assign a PR reviewer (Lead/Professor only)")
-    @app_commands.describe(dev="Member to assign as reviewer", pr_number="GitHub PR number or ticket ID suffix")
+    @app_commands.command(name="assign", description="Manually assign a ticket's reviewer (Lead/Professor only)")
+    @app_commands.describe(dev="Member to assign as reviewer", ticket_id="Ticket ID (last 8 chars or full UUID)")
+    @staff_only()
     async def assign(
             self,
             interaction: discord.Interaction,
             dev: discord.Member,
-            pr_number: str
+            ticket_id: str
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
@@ -38,21 +39,22 @@ class ReviewCog(commands.GroupCog, name="review"):
         except RuntimeError:
             return
 
-        if caller.role not in {"lead", "professor"}:
-            await interaction.followup.send("Only Lead or Professor can assign reviewers", ephemeral=True)
-            return
-
         db = database.get_db()
-        reviewer = await MemberService(db).get_by_discord_id(str(dev.id))
+        members = MemberService(db)
+        reviewer = await members.get_by_discord_id(str(dev.id))
         if reviewer is None:
             await interaction.followup.send(f"{dev.display_name} is not a registered member", ephemeral=True)
             return
 
-        ticket_svc = TicketService(db)
-        ticket = await ticket_svc.get(pr_number)
-        if ticket is None:
-            await interaction.followup.send(f"No ticket found for `{pr_number}`", ephemeral=True)
+        try:
+            ticket = await TicketService(db, members).get(ticket_id)
+        except ValueError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
             return
+        if ticket is None:
+            await interaction.followup.send(f"No ticket found for `{ticket_id}`", ephemeral=True)
+            return
+        short_id = str(ticket.id)[-8:]
 
         updated = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -70,15 +72,15 @@ class ReviewCog(commands.GroupCog, name="review"):
         code_review = self.bot.get_text_channel("code_review", interaction.guild)
         if isinstance(code_review, discord.TextChannel):
             await code_review.send(
-                f"📋 PR `{pr_number}` reviewer manually set to {dev.mention} "
+                f"📋 Ticket `{short_id}` reviewer manually set to {dev.mention} "
                 f"(by {interaction.user.mention})"
             )
 
         await interaction.followup.send(
-            f"Reviewer for `{pr_number}` set to **{reviewer.discord_name}**",
+            f"Reviewer for ticket `{short_id}` set to **{reviewer.discord_name}**",
             ephemeral=True
         )
-        log.info("review.assigned", ticket=pr_number, reviewer=str(reviewer.id), by=str(caller.id))
+        log.info("review.assigned", ticket=str(ticket.id), reviewer=str(reviewer.id), by=str(caller.id))
 
 
     @app_commands.command(name="stats", description="Show PR review counts per dev this sprint")

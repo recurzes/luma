@@ -154,8 +154,8 @@ class MonitoringCog(commands.Cog):
                     embed = discord.Embed(
                         title="Stale Ticket Warning",
                         description=(
-                            f"**{ticket['title']}** has been `in_progress` for 48+ hours"
-                            f"with no activity.{assignee_line}\n`id: {str(ticket['id'])[:8]}...`"
+                            f"**{ticket['title']}** has been `in_progress` for 48+ hours "
+                            f"with no activity.{assignee_line}\n`id: {str(ticket['id'])[-8:]}`"
                         ),
                         color=discord.Color.yellow()
                     )
@@ -166,8 +166,8 @@ class MonitoringCog(commands.Cog):
             embed = discord.Embed(
                 title="Stale Ticket Warning",
                 description=(
-                    f"**{ticket['title']}** has been `in_progress` for 48+ hours"
-                    f"with no activity.\n`id: {str(ticket['id'])[:8]}...`"
+                    f"**{ticket['title']}** has been `in_progress` for 48+ hours "
+                    f"with no activity.\n`id: {str(ticket['id'])[-8:]}`"
                 ),
                 color=discord.Color.yellow()
             )

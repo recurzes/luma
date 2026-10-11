@@ -31,6 +31,9 @@ log = structlog.get_logger()
 _ANY_RE = re.compile(r'\bany\b')
 _COMMENT_LINE_RE = re.compile(r'^\+\s*(?://|/\*|\*)')
 
+_FILES_PER_PAGE = 100
+_MAX_FILE_PAGES = 10
+
 _reviewer_queue: deque[str] = deque()
 
 
@@ -156,7 +159,8 @@ class GitHubService:
         pr_url = pr.get("html_url", "")
         pr_body = pr.get("body") or ""
         author_login = pr.get("user", {}).get("login", event_row.get("actor", ""))
-        repo_full = pr.get("head", {}).get("repo", {}).get("full_name", "")
+        # The files endpoint lives on the base repo; head differs for fork PRs.
+        repo_full = ((pr.get("base") or {}).get("repo") or pr.get("head", {}).get("repo") or {}).get("full_name", "")
         merged = pr.get("merged", False)
 
         author_member = await self.get_member_by_github(author_login)
@@ -209,12 +213,26 @@ class GitHubService:
         await self._post_to_channel("github_feed", embed)
 
         if author_member:
-            xp_result = await self._xp.award(str(author_member.id), "pr_merged", metadata={"pr_number": pr_number})
+            # any_flag feeds the No `any` Club badge: False = scanned and clean, None = not scanned.
+            repo_full = (pr.get("base") or {}).get("repo", {}).get("full_name", "")
+            files = await self._fetch_pr_files(repo_full, pr_number)
+            any_flag = None if files is None else bool(_count_any_violations(files))
+
+            xp_result = await self._xp.award(
+                str(author_member.id), "pr_merged", metadata={"pr_number": pr_number, "any_flag": any_flag}
+            )
             await self._streak.record_activity(str(author_member.id), "pr_merged")
             if xp_result.level_up:
                 await self._announce_level_up(author_member, xp_result)
 
             await self._increment_stat(str(author_member.id), "prs_merged")
+
+            badges = await BadgeService(self._db, self._xp).check_and_award(
+                str(author_member.id),
+                "pr_merged",
+                {"pr_opened_at": pr.get("created_at"), "pr_merged_at": pr.get("merged_at")}
+            )
+            await post_badges_to_shoutouts(self._bot, author_member, badges)
 
         await self._close_linked_ticket(pr_body)
 
@@ -228,8 +246,12 @@ class GitHubService:
             if match:
                 short_id = match.group(1)
                 try:
-                    svc = TicketService(self._db, self._members)
-                    result = await svc.close(short_id, "github-bot")
+                    svc = TicketService(
+                        self._db, self._members, xp_service=self._xp, streak_service=self._streak
+                    )
+                    result = await svc.close(short_id.lower(), "github-bot")
+                    if result.awarded_to:
+                        await post_badges_to_shoutouts(self._bot, result.awarded_to, result.badges)
                     log.info("github.linked_ticket.closed", short_id=short_id)
                     return
                 except Exception as e:
@@ -274,23 +296,8 @@ class GitHubService:
     # TS `any` guard
 
     async def _check_any_usage(self, repo_full: str, pr_number: int, author: Member) -> None:
-        files = await self._fetch_pr_files(repo_full, pr_number)
-        violations: dict[str, int] = {}
-
-        for f in files:
-            filename: str = f.get("filename", "")
-            if not filename.endswith((".ts", ".tsx")):
-                continue
-            patch: str = f.get("patch", "") or ""
-            count = 0
-            for line in patch.splitlines():
-                if not line.startswith("+"):
-                    continue
-                if _COMMENT_LINE_RE.match(line):
-                    continue
-                count += len(_ANY_RE.findall(line))
-            if count:
-                violations[filename] = count
+        files = await self._fetch_pr_files(repo_full, pr_number) or []
+        violations = _count_any_violations(files)
 
         if violations:
             lines = [f"- `{fn}` (+{n}) occurrence{'s' if n > 1 else ''}" for fn, n in violations.items()]
@@ -303,7 +310,7 @@ class GitHubService:
             await self._post_to_channel("code_review", embed)
 
     async def _check_t3_paths(self, repo_full: str, pr_number: int, author: Member):
-        files = await self._fetch_pr_files(repo_full, pr_number)
+        files = await self._fetch_pr_files(repo_full, pr_number) or []
         protected_hits: list[str] = []
 
         for f in files:
@@ -348,28 +355,38 @@ class GitHubService:
 
     # Helpers
 
-    async def _fetch_pr_files(self, repo_full: str, pr_number: int) -> list[dict]:
-        if not settings.GITHUB_TOKEN:
-            return []
+    async def _fetch_pr_files(self, repo_full: str, pr_number: int) -> list[dict] | None:
+        """All changed files of a PR, or None when they could not be fetched."""
+        if not settings.GITHUB_TOKEN or not repo_full:
+            return None
+
+        files: list[dict] = []
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"https://api.github.com/repos/{repo_full}/pulls/{pr_number}/files",
-                    headers={"Authorization": f"token {settings.GITHUB_TOKEN}",
-                             "Accept": "application/vnd.github.v3+json"}
-                )
-                if resp.status_code == 200:
-                    return resp.json()
-                log.warning(
-                    "github.fetch_pr_files.bad_status",
-                    status=resp.status_code,
-                    repo=repo_full,
-                    pr_number=pr_number
-                )
+                for page in range(1, _MAX_FILE_PAGES + 1):
+                    resp = await client.get(
+                        f"https://api.github.com/repos/{repo_full}/pulls/{pr_number}/files",
+                        params={"per_page": _FILES_PER_PAGE, "page": page},
+                        headers={"Authorization": f"token {settings.GITHUB_TOKEN}",
+                                 "Accept": "application/vnd.github.v3+json"}
+                    )
+                    if resp.status_code != 200:
+                        log.warning(
+                            "github.fetch_pr_files.bad_status",
+                            status=resp.status_code,
+                            repo=repo_full,
+                            pr_number=pr_number
+                        )
+                        return None
+                    batch = resp.json()
+                    files.extend(batch)
+                    if len(batch) < _FILES_PER_PAGE:
+                        break
         except Exception as e:
             log.warning("github.fetch_pr_files.error", error=str(e))
+            return None
 
-        return []
+        return files
 
     async def _post_to_channel(self, channel_key: str, embed) -> None:
         if self._bot is None:
@@ -419,6 +436,26 @@ class GitHubService:
             color=discord.Color.gold()
         )
         await self._post_to_channel("shoutouts", embed)
+
+
+def _count_any_violations(files: list[dict]) -> dict[str, int]:
+    """Added `any` occurrences per TypeScript file, ignoring comment lines."""
+    violations: dict[str, int] = {}
+    for f in files:
+        filename: str = f.get("filename", "")
+        if not filename.endswith((".ts", ".tsx")):
+            continue
+        patch: str = f.get("patch", "") or ""
+        count = 0
+        for line in patch.splitlines():
+            if not line.startswith("+"):
+                continue
+            if _COMMENT_LINE_RE.match(line):
+                continue
+            count += len(_ANY_RE.findall(line))
+        if count:
+            violations[filename] = count
+    return violations
 
 
 def _simple_embed(title: str, description: str, color: int):
