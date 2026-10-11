@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from typing import TYPE_CHECKING
 
 import discord
@@ -15,14 +16,18 @@ from app.services.notification_service import NotificationService
 from app.services.standup_service import StandupService
 from app.services.xp_service import XPService
 from app.utils.badge_broadcast import post_badges_to_shoutouts
-from app.utils.dm import send_notification_dm
+from app.utils.dm import format_dm, send_notification_dm
 
 if TYPE_CHECKING:
     pass
 
 log = structlog.get_logger()
 
-_PENDING: dict[int, dict] = {}
+# Discord user id -> standups still to answer, oldest first. Sessions are per server, so a
+# user in two servers has two entries and answers them one after the other in the same DM.
+_PENDING: dict[int, deque[dict]] = {}
+
+_GREETING = "☀️ **Good morning! Time for your daily standup.**\n\n"
 
 _QUESTIONS = [
     "**1. What did you complete yesterday?**",
@@ -33,7 +38,7 @@ _QUESTIONS = [
 
 def has_pending_standup(user_id: int) -> bool:
     """True while the user is mid-standup, so other DM listeners leave their replies alone."""
-    return user_id in _PENDING
+    return bool(_PENDING.get(user_id))
 
 
 class StandupCog(commands.Cog):
@@ -54,9 +59,10 @@ class StandupCog(commands.Cog):
             return
 
         user_id = message.author.id
-        state = _PENDING.get(user_id)
-        if state is None:
+        queue = _PENDING.get(user_id)
+        if not queue:
             return
+        state = queue[0]
 
         stage = state["stage"]
         content = message.content.strip()
@@ -99,61 +105,72 @@ class StandupCog(commands.Cog):
                     "Something went wrong saving your standup. Please try again or let the Lead know"
                 )
             finally:
-                _PENDING.pop(user_id, None)
+                queue.popleft()
+                if not queue:
+                    _PENDING.pop(user_id, None)
+
+            if queue:
+                # Next server's standup, held back until this one was finished.
+                await message.channel.send(format_dm(queue[0]["guild_name"], _GREETING + _QUESTIONS[0]))
 
     # Scheduled Jobs
 
     async def _standup_dm_job(self) -> None:
         log.info("job.standup_dm.start")
+        # Yesterday's unanswered standups must not block today's.
+        _PENDING.clear()
+
         svc = self._svc()
-        session = await svc.get_or_create_today()
         enrollment_svc = EnrollmentService(database.get_db())
         notification_svc = NotificationService(database.get_db())
         sent = 0
 
         for guild in self.bot.guilds:
+            session = await svc.get_or_create_today(str(guild.id))
             targets = await enrollment_svc.get_feature_targets(
                 str(guild.id), "standup", notification_svc
             )
             for member in targets:
                 discord_id = int(member.discord_id)
-                if discord_id in _PENDING:
+                queue = _PENDING.setdefault(discord_id, deque())
+                state = {
+                    "session_id": str(session.id),
+                    "member_id": str(member.id),
+                    "guild_id": str(guild.id),
+                    "guild_name": guild.name,
+                    "stage": 0,
+                    "yesterday": None,
+                    "today": None,
+                    "blockers": None,
+                }
+
+                if queue:
+                    # Already answering another server's standup; this one is asked afterwards.
+                    queue.append(state)
                     continue
 
-                body = "☀️ **Good morning! Time for your daily standup.**\n\n" + _QUESTIONS[0]
                 if await send_notification_dm(
                         self.bot,
                         discord_id=member.discord_id,
                         member_id=member.id,
                         guild=guild,
                         feature="standup",
-                        body=body,
+                        body=_GREETING + _QUESTIONS[0],
                         notification_svc=notification_svc,
                 ):
-                    _PENDING[discord_id] = {
-                        "session_id": str(session.id),
-                        "member_id": str(member.id),
-                        "guild_id": str(guild.id),
-                        "guild_name": guild.name,
-                        "stage": 0,
-                        "yesterday": None,
-                        "today": None,
-                        "blockers": None,
-                    }
+                    queue.append(state)
                     sent += 1
                     log.info("standup.dm_sent", discord_id=discord_id, guild_id=guild.id)
+                elif not queue:
+                    _PENDING.pop(discord_id, None)
 
         log.info("job.standup_dm.done", sent=sent)
 
     async def _standup_compile_job(self) -> None:
         log.info("job.standup_compile.start")
         svc = self._svc()
-        session = await svc.get_or_create_today()
-        responses = await svc.get_responses(str(session.id))
         enrollment_svc = EnrollmentService(database.get_db())
         notification_svc = NotificationService(database.get_db())
-
-        responded_ids = {str(r.member_id) for r in responses}
         posted = 0
 
         for guild in self.bot.guilds:
@@ -163,30 +180,26 @@ class StandupCog(commands.Cog):
             if not targets:
                 continue
 
-            target_ids = {str(m.id) for m in targets}
-            guild_responses = [r for r in responses if str(r.member_id) in target_ids]
-            guild_non_resp = [m for m in targets if str(m.id) not in responded_ids]
+            session = await svc.get_or_create_today(str(guild.id))
+            responses = await svc.get_responses(str(session.id))
+            responded_ids = {str(r.member_id) for r in responses}
+
+            non_responders = [m for m in targets if str(m.id) not in responded_ids]
             member_map = {str(m.id): m.discord_name for m in targets}
 
-            embed = build_standup_summary(session, guild_responses, guild_non_resp, member_map)
+            embed = build_standup_summary(session, responses, non_responders, member_map)
 
             channel = self.bot.get_text_channel("standup_log", guild)
             if isinstance(channel, discord.TextChannel):
                 await channel.send(embed=embed)
+                await svc.mark_posted(str(session.id))
                 posted += 1
 
-        if posted:
-            await svc.mark_posted(str(session.id))
-
-        log.info("job.standup_compile.done", responses=len(responses), posted=posted)
+        log.info("job.standup_compile.done", posted=posted)
 
     async def _standup_nag_job(self) -> None:
         log.info("job.standup_nag.start")
         svc = self._svc()
-        session = await svc.get_or_create_today()
-        responses = await svc.get_responses(str(session.id))
-        responded_ids = {str(r.member_id) for r in responses}
-
         enrollment_svc = EnrollmentService(database.get_db())
         notification_svc = NotificationService(database.get_db())
         pinged = 0
@@ -199,6 +212,11 @@ class StandupCog(commands.Cog):
             targets = await enrollment_svc.get_feature_targets(
                 str(guild.id), "standup", notification_svc
             )
+            if not targets:
+                continue
+
+            session = await svc.get_or_create_today(str(guild.id))
+            responded_ids = {str(r.member_id) for r in await svc.get_responses(str(session.id))}
             guild_non_resp = [m for m in targets if str(m.id) not in responded_ids]
 
             if not guild_non_resp:

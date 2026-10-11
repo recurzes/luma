@@ -33,10 +33,12 @@ from app.services.member_service import MemberService
 # ─── fixtures ─────────────────────────────────────────────────────────────────
 
 MEMBER_ID = uuid4()
+GUILD_ID = "1"
 NOW = datetime.now(tz=timezone.utc)
 
 MEMBER_ROW = {
     "id": str(MEMBER_ID),
+    "guild_id": GUILD_ID,
     "discord_id": "123456789",
     "discord_name": "TestDev",
     "github_username": None,
@@ -83,7 +85,7 @@ async def test_register_success():
     chain.execute.side_effect = side_effect
 
     service = MemberService(db)
-    member = await service.register("123456789", "TestDev", "beginner", "T1")
+    member = await service.register("123456789", GUILD_ID, "TestDev", "beginner", "T1")
 
     assert member.discord_id == "123456789"
     assert member.role == "beginner"
@@ -96,7 +98,7 @@ async def test_register_duplicate_raises():
     service = MemberService(db)
 
     with pytest.raises(ValueError, match="already registered"):
-        await service.register("123456789", "TestDev", "beginner", "T1")
+        await service.register("123456789", GUILD_ID, "TestDev", "beginner", "T1")
 
 
 @pytest.mark.asyncio
@@ -104,7 +106,7 @@ async def test_get_by_discord_id_found():
     db, chain, _ = _mock_db(rows=[MEMBER_ROW])
     service = MemberService(db)
 
-    member = await service.get_by_discord_id("123456789")
+    member = await service.get_by_discord_id("123456789", GUILD_ID)
     assert member is not None
     assert member.discord_name == "TestDev"
 
@@ -114,7 +116,7 @@ async def test_get_by_discord_id_not_found():
     db, chain, _ = _mock_db(rows=[])
     service = MemberService(db)
 
-    member = await service.get_by_discord_id("nonexistent")
+    member = await service.get_by_discord_id("nonexistent", GUILD_ID)
     assert member is None
 
 
@@ -124,7 +126,7 @@ async def test_update_github_username():
     db, chain, _ = _mock_db(rows=[updated_row])
     service = MemberService(db)
 
-    member = await service.update_github_username("123456789", "testdev-gh")
+    member = await service.update_github_username("123456789", GUILD_ID, "testdev-gh")
     assert member.github_username == "testdev-gh"
 
 
@@ -134,21 +136,21 @@ async def test_update_github_username_not_found_raises():
     service = MemberService(db)
 
     with pytest.raises(ValueError, match="No member found"):
-        await service.update_github_username("ghost", "some-gh")
+        await service.update_github_username("ghost", GUILD_ID, "some-gh")
 
 
 @pytest.mark.asyncio
 async def test_exists_true():
     db, chain, _ = _mock_db(rows=[MEMBER_ROW])
     service = MemberService(db)
-    assert await service.exists("123456789") is True
+    assert await service.exists("123456789", GUILD_ID) is True
 
 
 @pytest.mark.asyncio
 async def test_exists_false():
     db, chain, _ = _mock_db(rows=[])
     service = MemberService(db)
-    assert await service.exists("ghost") is False
+    assert await service.exists("ghost", GUILD_ID) is False
 
 
 @pytest.mark.asyncio
@@ -156,7 +158,7 @@ async def test_register_invalid_role_raises():
     db, _, _ = _mock_db()
     service = MemberService(db)
     with pytest.raises(ValueError, match="Invalid role"):
-        await service.register("1", "Dev", "wizard", "T1")
+        await service.register("1", GUILD_ID, "Dev", "wizard", "T1")
 
 
 @pytest.mark.asyncio
@@ -164,4 +166,4 @@ async def test_register_invalid_tier_raises():
     db, _, _ = _mock_db()
     service = MemberService(db)
     with pytest.raises(ValueError, match="Invalid tier_max"):
-        await service.register("1", "Dev", "beginner", "T9")
+        await service.register("1", GUILD_ID, "Dev", "beginner", "T9")

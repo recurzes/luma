@@ -21,6 +21,7 @@ from app.utils.guards import require_member
 log = structlog.get_logger()
 
 
+@app_commands.guild_only()
 class XPCog(commands.GroupCog, name="xp"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -44,7 +45,7 @@ class XPCog(commands.GroupCog, name="xp"):
 
         lookup = target or interaction.user
         svc = MemberService(database.get_db())
-        member = await svc.get_by_discord_id(str(lookup.id))
+        member = await svc.get_by_discord_id(str(lookup.id), str(interaction.guild_id))
 
         if member is None:
             await interaction.followup.send("That user is not registered", ephemeral=True)
@@ -66,7 +67,7 @@ class XPCog(commands.GroupCog, name="xp"):
         embed.add_field(name="Level", value=f"{lvl} — {level_title(lvl)}", inline=True)
         embed.add_field(name="Streak", value=f"🔥 {streak} days", inline=True)
 
-        board = await xp_svc.leaderboard(limit=50)
+        board = await xp_svc.leaderboard(str(interaction.guild_id), limit=50)
         rank = next((e.rank for e in board if str(e.member_id) == str(member.id)), None)
         if rank:
             embed.add_field(name="Rank", value=f"#{rank}", inline=True)
@@ -81,7 +82,7 @@ class XPCog(commands.GroupCog, name="xp"):
     @app_commands.checks.cooldown(1, 30.0, key=lambda i: i.guild_id)
     async def leaderboard(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
-        entries = await self._xp_service().leaderboard(limit=10)
+        entries = await self._xp_service().leaderboard(str(interaction.guild_id), limit=10)
         embed = build_leaderboard_embed(entries, period="All-time")
         await interaction.followup.send(embed=embed)
 
@@ -89,17 +90,20 @@ class XPCog(commands.GroupCog, name="xp"):
 
     async def _leaderboard_post_job(self) -> None:
         log.info("job.leaderboard_post.start")
-        entries = await self._xp_service().leaderboard(limit=10)
-        embed = build_leaderboard_embed(entries, period="Weekly")
+        xp_svc = self._xp_service()
 
         posted = 0
         for guild in self.bot.guilds:
             channel = self.bot.get_text_channel("rankings", guild)
-            if isinstance(channel, discord.TextChannel):
-                await channel.send(embed=embed)
-                posted += 1
+            if not isinstance(channel, discord.TextChannel):
+                continue
+            entries = await xp_svc.leaderboard(str(guild.id), limit=10)
+            if not entries:
+                continue
+            await channel.send(embed=build_leaderboard_embed(entries, period="Weekly"))
+            posted += 1
 
-        log.info("job.leaderboard_post.done", entries=len(entries), posted=posted)
+        log.info("job.leaderboard_post.done", posted=posted)
 
     async def _streak_check_job(self) -> None:
         log.info("job.streak_check.start")

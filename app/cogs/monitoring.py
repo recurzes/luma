@@ -14,6 +14,7 @@ from app.config import settings
 from app.services.enrollment_service import EnrollmentService
 from app.services.member_service import MemberService
 from app.services.notification_service import NotificationService
+from app.utils.db import run_query
 from app.utils.dm import format_dm, send_notification_dm
 
 log = structlog.get_logger()
@@ -27,8 +28,11 @@ _MOOD_LOOKUP.update({"1️⃣": 1, "2️⃣": 2, "3️⃣": 3, "4️⃣": 4, "5�
 
 MOOD_REACTION_EMOJIS = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣")
 
-_mood_state: dict[int, str | int] = {}
-_mood_prompt_by_msg: dict[int, int] = {}
+# Mood check-ins are per server. A user in two servers gets two prompts.
+# prompt message id -> (guild id, user id), while the prompt is unanswered
+_mood_prompts: dict[int, tuple[int, int]] = {}
+# guild id -> {user id: score}
+_mood_scores: dict[int, dict[int, int]] = {}
 
 
 def _mood_score_from_emoji(emoji: discord.PartialEmoji) -> int | None:
@@ -53,18 +57,17 @@ class MonitoringCog(commands.Cog):
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         if self.bot.user and payload.user_id == self.bot.user.id:
             return
-        expected_user = _mood_prompt_by_msg.get(payload.message_id)
-        if expected_user is None:
+        prompt = _mood_prompts.get(payload.message_id)
+        if prompt is None:
             return
+        guild_id, expected_user = prompt
         if payload.user_id != expected_user:
-            return
-        if _mood_state.get(expected_user) != "pending":
             return
         score = _mood_score_from_emoji(payload.emoji)
         if score is None:
             return
-        _mood_state[expected_user] = score
-        del _mood_prompt_by_msg[payload.message_id]
+        _mood_scores.setdefault(guild_id, {})[expected_user] = score
+        del _mood_prompts[payload.message_id]
 
         try:
             ch = await self.bot.fetch_channel(payload.channel_id)
@@ -72,7 +75,8 @@ class MonitoringCog(commands.Cog):
             return
         if isinstance(ch, discord.DMChannel):
             await ch.send("Thanks! Your mood has been recorded anonymously")
-        log.info("mood.received", user_id=expected_user, score=score, via="reaction")
+        # No user ID here: the score is promised to be anonymous.
+        log.info("mood.received", guild_id=guild_id, via="reaction")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -82,7 +86,8 @@ class MonitoringCog(commands.Cog):
             return
 
         user_id = message.author.id
-        if user_id not in _mood_state or _mood_state[user_id] != "pending":
+        pending = sorted(mid for mid, (_, uid) in _mood_prompts.items() if uid == user_id)
+        if not pending:
             return
         # A DM sent mid-standup is a standup answer, not a mood score.
         if has_pending_standup(user_id):
@@ -90,13 +95,11 @@ class MonitoringCog(commands.Cog):
 
         content = message.content.strip()
         if content in {"1", "2", "3", "4", "5"}:
-            _mood_state[user_id] = int(content)
-            for mid, uid in list(_mood_prompt_by_msg.items()):
-                if uid == user_id:
-                    del _mood_prompt_by_msg[mid]
-                    break
+            # A typed number answers the oldest unanswered prompt.
+            guild_id, _ = _mood_prompts.pop(pending[0])
+            _mood_scores.setdefault(guild_id, {})[user_id] = int(content)
             await message.channel.send("Thanks! Your mood has been recorded anonymously")
-            log.info("mood.received", user_id=user_id, score=content, via="message")
+            log.info("mood.received", guild_id=guild_id, via="message")
         else:
             await message.channel.send("Please react with 1️⃣–5️⃣ on the prompt, or reply with a number 1–5")
 
@@ -104,126 +107,83 @@ class MonitoringCog(commands.Cog):
     # Scheduled Jobs
     async def _stale_ticket_check(self) -> None:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
-        db = database.get_db()
 
-        stale = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: (
-                db.table("bot_tickets")
-                .select("id, title, assignee_id, updated_at")
-                .eq("status", "in_progress")
-                .lt("updated_at", cutoff)
-                .execute()
-            )
+        stale = await run_query(
+            self._db.table("bot_tickets")
+            .select("id, guild_id, title, assignee_id, updated_at")
+            .eq("status", "in_progress")
+            .lt("updated_at", cutoff)
         )
-
         if not stale.data:
             return
 
-        task_channels: list[tuple[discord.Guild, discord.TextChannel]] = []
-        for guild in self.bot.guilds:
-            channel = self.bot.get_text_channel("task_feed", guild)
-            if isinstance(channel, discord.TextChannel):
-                task_channels.append((guild, channel))
-        if not task_channels:
-            return
-
-        assignee_ids = ({t["assignee_id"] for t in stale.data if t.get("assignee_id")})
+        assignee_ids = list({t["assignee_id"] for t in stale.data if t.get("assignee_id")})
         members_by_id: dict[str, dict] = {}
         if assignee_ids:
-            mem_res = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: (
-                    db.table("bot_members")
-                    .select("id, discord_id, discord_name")
-                    .in_("id", assignee_ids)
-                    .execute()
-                )
+            mem_res = await run_query(
+                self._db.table("bot_members")
+                .select("id, discord_id, discord_name")
+                .in_("id", assignee_ids)
             )
             members_by_id = {r["id"]: r for r in (mem_res.data or [])}
 
         for ticket in stale.data:
-            assignee_line = ""
-            aid = ticket.get("assignee_id")
-            if aid and aid in members_by_id:
-                m = members_by_id[aid]
-                for guild, channel in task_channels:
-                    gm = guild.get_member(int(m["discord_id"]))
-                    mention = gm.mention if gm else f"<@{m['discord_id']}>"
-                    assignee_line = f"\n**Assignee:** {mention} ({m['discord_name']})"
-                    embed = discord.Embed(
-                        title="Stale Ticket Warning",
-                        description=(
-                            f"**{ticket['title']}** has been `in_progress` for 48+ hours "
-                            f"with no activity.{assignee_line}\n`id: {str(ticket['id'])[-8:]}`"
-                        ),
-                        color=discord.Color.yellow()
-                    )
-                    await channel.send(embed=embed)
-                log.info("stale_ticket.warned", ticket_id=ticket["id"])
+            guild = self.bot.get_guild(int(ticket["guild_id"]))
+            channel = self.bot.get_text_channel("task_feed", guild) if guild else None
+            if not isinstance(channel, discord.TextChannel):
                 continue
+
+            assignee_line = ""
+            m = members_by_id.get(ticket.get("assignee_id"))
+            if m:
+                assignee_line = f"\n**Assignee:** <@{m['discord_id']}> ({m['discord_name']})"
 
             embed = discord.Embed(
                 title="Stale Ticket Warning",
                 description=(
                     f"**{ticket['title']}** has been `in_progress` for 48+ hours "
-                    f"with no activity.\n`id: {str(ticket['id'])[-8:]}`"
+                    f"with no activity.{assignee_line}\n`id: {str(ticket['id'])[-8:]}`"
                 ),
                 color=discord.Color.yellow()
             )
-            for _, channel in task_channels:
-                await channel.send(embed=embed)
-            log.info("stale_ticket.warned", ticket_id=ticket["id"])
+            await channel.send(embed=embed)
+            log.info("stale_ticket.warned", ticket_id=ticket["id"], guild_id=ticket["guild_id"])
 
     async def _pr_stale_check(self) -> None:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
 
-        reviewed_prs: set[int] = set()
-        review_events = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: (
-                self._db.table("bot_github_events")
-                .select("payload")
-                .eq("event_type", "pull_request_review")
-                .execute()
-            )
+        stale_rows = await run_query(
+            self._db.table("bot_pr_reviewers")
+            .select("guild_id, repo_full_name, pr_number, reviewer_member_id, pr_url")
+            .lt("pr_created_at", cutoff)
         )
-        for rev in (review_events.data or []):
-            pr_num = (rev.get("payload") or {}).get("pull_request", {}).get("number")
-            if pr_num is not None:
-                reviewed_prs.add(int(pr_num))
-
-        stale_rows = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: (
-                self._db.table("bot_pr_reviewers")
-                .select("pr_number, reviewer_member_id, pr_url")
-                .lt("pr_created_at", cutoff)
-                .execute()
-            )
-        )
-
         rows = stale_rows.data or []
         if not rows:
             return
 
-        code_channels: list[tuple[discord.Guild, discord.TextChannel]] = []
-        for guild in self.bot.guilds:
-            channel = self.bot.get_text_channel("code_review", guild)
-            if isinstance(channel, discord.TextChannel):
-                code_channels.append((guild, channel))
-        if not code_channels:
-            return
+        reviewed: set[tuple[str, int]] = set()
+        review_events = await run_query(
+            self._db.table("bot_github_events")
+            .select("payload")
+            .eq("event_type", "pull_request_review")
+        )
+        for rev in (review_events.data or []):
+            payload = rev.get("payload") or {}
+            pr_num = payload.get("pull_request", {}).get("number")
+            repo = (payload.get("repository") or {}).get("full_name", "")
+            if pr_num is not None:
+                reviewed.add((repo.lower(), int(pr_num)))
 
         member_svc = MemberService(self._db)
 
-        seen_pr: set[int] = set()
         for row in rows:
             pr_num = int(row["pr_number"])
-            if pr_num in seen_pr:
+            if (row["repo_full_name"].lower(), pr_num) in reviewed:
                 continue
-            seen_pr.add(pr_num)
-            if pr_num in reviewed_prs:
+
+            guild = self.bot.get_guild(int(row["guild_id"]))
+            channel = self.bot.get_text_channel("code_review", guild) if guild else None
+            if not isinstance(channel, discord.TextChannel):
                 continue
 
             mention = ""
@@ -231,20 +191,13 @@ class MonitoringCog(commands.Cog):
             if rev_uuid:
                 rev_member = await member_svc.get_by_id(str(rev_uuid))
                 if rev_member:
-                    mentions = []
-                    for guild, _ in code_channels:
-                        gm = guild.get_member(int(rev_member.discord_id))
-                        mentions.append(gm.mention if gm else f"<@{rev_member.discord_id}>")
-                    mention = " ".join(sorted(set(mentions))) + " "
+                    mention = f"<@{rev_member.discord_id}> "
 
-            pr_url = row.get("pr_url") or ""
-            msg = (
+            await channel.send(
                 f"PR **#{pr_num}** has been open 24+ hours with no review yet — {mention}\n"
-                f"{pr_url}"
+                f"{row.get('pr_url') or ''}"
             )
-            for _, channel in code_channels:
-                await channel.send(msg)
-            log.info("pr_stale.pinged", pr_number=pr_num)
+            log.info("pr_stale.pinged", pr_number=pr_num, guild_id=row["guild_id"])
 
     async def _tip_of_the_day(self) -> None:
         tips = settings.DEV_TIPS
@@ -269,9 +222,8 @@ class MonitoringCog(commands.Cog):
             log.info("tip_of_day.posted", posted=posted)
 
     async def _mood_checkin_dm(self) -> None:
-        global _mood_state, _mood_prompt_by_msg
-        _mood_state = {}
-        _mood_prompt_by_msg = {}
+        _mood_prompts.clear()
+        _mood_scores.clear()
 
         enrollment_svc = EnrollmentService(database.get_db())
         notification_svc = NotificationService(database.get_db())
@@ -292,8 +244,7 @@ class MonitoringCog(commands.Cog):
                     msg = await user.send(format_dm(guild.name, body))
                     for emoji in MOOD_REACTION_EMOJIS:
                         await msg.add_reaction(emoji)
-                    _mood_prompt_by_msg[msg.id] = int(member.discord_id)
-                    _mood_state[int(member.discord_id)] = "pending"
+                    _mood_prompts[msg.id] = (guild.id, int(member.discord_id))
                     sent += 1
                 except (discord.Forbidden, discord.NotFound):
                     pass
@@ -301,34 +252,32 @@ class MonitoringCog(commands.Cog):
         log.info("mood_checkin.dms_sent", count=sent)
 
     async def _mood_aggregate_post(self) -> None:
-        scores = [v for v in _mood_state.values() if isinstance(v, int)]
-        if not scores:
-            return
-
-        avg = sum(scores) / len(scores)
         emoji_map = {1: "😞", 2: "😐", 3: "🙂", 4: "😊", 5: "🔥"}
-        distribution = {i: scores.count(i) for i in range(1, 6) if scores.count(i) > 0}
-        dist_lines = "\n".join(
-            f"{emoji_map.get(k, str(k))} **{k}** — {v} response(s)"
-            for k, v in sorted(distribution.items())
-        )
-
-        embed = discord.Embed(
-            title="Team Mood Check-in",
-            description=f"**Average score:** {avg:.1f} / 5\n**Responses:** {len(scores)}\n\n{dist_lines}",
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text="Anonymous aggregate · LumaBot")
-
         posted = 0
+
         for guild in self.bot.guilds:
+            scores = list(_mood_scores.get(guild.id, {}).values())
             general = self.bot.get_text_channel("general", guild)
-            if not isinstance(general, discord.TextChannel):
+            if not scores or not isinstance(general, discord.TextChannel):
                 continue
+
+            avg = sum(scores) / len(scores)
+            distribution = {i: scores.count(i) for i in range(1, 6) if scores.count(i) > 0}
+            dist_lines = "\n".join(
+                f"{emoji_map.get(k, str(k))} **{k}** — {v} response(s)"
+                for k, v in sorted(distribution.items())
+            )
+
+            embed = discord.Embed(
+                title="Team Mood Check-in",
+                description=f"**Average score:** {avg:.1f} / 5\n**Responses:** {len(scores)}\n\n{dist_lines}",
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text="Anonymous aggregate · LumaBot")
             await general.send(embed=embed)
             posted += 1
 
-        log.info("mood_aggregate.posted", avg=round(avg, 2), responses=len(scores), posted=posted)
+        log.info("mood_aggregate.posted", posted=posted)
 
 
 async def setup(bot: commands.Bot) -> None:

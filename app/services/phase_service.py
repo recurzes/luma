@@ -23,8 +23,11 @@ _MOTIVATIONAL = [
 
 
 class PhaseService:
-    def __init__(self, db: Client) -> None:
+    """Phases of one server: every query is filtered by the guild given here."""
+
+    def __init__(self, db: Client, guild_id: str) -> None:
         self._db = db
+        self._guild_id = guild_id
 
     async def _run(self, fn):
         return await asyncio.get_event_loop().run_in_executor(None, fn)
@@ -34,6 +37,7 @@ class PhaseService:
             return (
                 self._db.table("bot_phases")
                 .select("*")
+                .eq("guild_id", self._guild_id)
                 .eq("status", "active")
                 .limit(1)
                 .execute()
@@ -49,12 +53,71 @@ class PhaseService:
             return (
                 self._db.table("bot_phases")
                 .select("*")
+                .eq("guild_id", self._guild_id)
                 .order("key")
                 .execute()
             )
 
         result = await self._run(_fetch)
         return [Phase.model_validate(r) for r in result.data]
+
+    async def create(self, key: str, name: str, description: str | None = None) -> Phase:
+        """Add a phase. The first phase of a server starts active; later ones wait as pending."""
+        existing = await self.get_all()
+        if any(p.key == key for p in existing):
+            raise ValueError(f"A phase with key `{key}` already exists in this server")
+
+        row = {
+            "guild_id": self._guild_id,
+            "key": key,
+            "name": name,
+            "description": description,
+            "status": "pending" if existing else "active",
+        }
+        if not existing:
+            row["started_at"] = datetime.now(timezone.utc).isoformat()
+
+        result = await self._run(lambda: self._db.table("bot_phases").insert(row).execute())
+        log.info("phase.created", guild_id=self._guild_id, phase_key=key, status=row["status"])
+        return Phase.model_validate(result.data[0])
+
+    async def get_by_key(self, key: str) -> Phase | None:
+        result = await self._run(
+            lambda: (
+                self._db.table("bot_phases")
+                .select("*")
+                .eq("guild_id", self._guild_id)
+                .eq("key", key)
+                .limit(1)
+                .execute()
+            )
+        )
+        return Phase.model_validate(result.data[0]) if result.data else None
+
+    async def add_criterion(self, phase_id: str, description: str) -> PhaseCriteria:
+        result = await self._run(
+            lambda: (
+                self._db.table("bot_phase_criteria")
+                .insert({"phase_id": phase_id, "description": description})
+                .execute()
+            )
+        )
+        return PhaseCriteria.model_validate(result.data[0])
+
+    async def ticket_counts(self, phase_key: str) -> tuple[int, int]:
+        """(open, closed) tickets tagged with this phase in this server."""
+        def _count(done: bool):
+            q = (
+                self._db.table("bot_tickets")
+                .select("id", count="exact")
+                .eq("guild_id", self._guild_id)
+                .eq("phase", phase_key)
+            )
+            return (q.eq("status", "done") if done else q.neq("status", "done")).execute()
+
+        open_res = await self._run(lambda: _count(False))
+        closed_res = await self._run(lambda: _count(True))
+        return open_res.count or 0, closed_res.count or 0
 
     async def get_criteria(self, phase_id: str) -> list[PhaseCriteria]:
         def _fetch():
@@ -104,6 +167,7 @@ class PhaseService:
             return (
                 self._db.table("bot_phases")
                 .update({"status": "complete", "completed_at": now})
+                .eq("guild_id", self._guild_id)
                 .eq("key", phase_key)
                 .execute()
             )
@@ -116,6 +180,7 @@ class PhaseService:
             return (
                 self._db.table("bot_phases")
                 .select("*")
+                .eq("guild_id", self._guild_id)
                 .eq("status", "pending")
                 .order("key")
                 .limit(1)
@@ -130,6 +195,7 @@ class PhaseService:
                 return (
                     self._db.table("bot_phases")
                     .update({"status": "active", "started_at": now})
+                    .eq("guild_id", self._guild_id)
                     .eq("key", next_key)
                     .execute()
                 )
@@ -145,6 +211,7 @@ class PhaseService:
             lambda : (
                 self._db.table("bot_phases")
                 .select("id")
+                .eq("guild_id", self._guild_id)
                 .eq("key", phase_key)
                 .limit(1)
                 .execute()
@@ -159,6 +226,7 @@ class PhaseService:
             lambda : (
                 self._db.table("bot_tickets")
                 .select("assignee_id, tier")
+                .eq("guild_id", self._guild_id)
                 .eq("status", "done")
                 .eq("phase", phase_key)
                 .execute()
@@ -168,23 +236,20 @@ class PhaseService:
         stats_result = await self._run(
             lambda: (
                 self._db.table("bot_member_stats")
-                .select("member_id, total_xp, level, current_streak, longest_streak, tickets_closed")
+                .select(
+                    "member_id, total_xp, level, current_streak, longest_streak, tickets_closed, "
+                    "bot_members!inner(discord_name, guild_id)"
+                )
+                .eq("bot_members.guild_id", self._guild_id)
                 .order("total_xp", desc=True)
                 .limit(20)
                 .execute()
             )
         )
-
-        member_ids = [r["member_id"] for r in stats_result.data]
-        names_result = await self._run(
-            lambda: (
-                self._db.table("bot_members")
-                .select("id, discord_name")
-                .in_("id", member_ids)
-                .execute()
-            )
-        )
-        names_by_id = {r["id"]: r["discord_name"] for r in names_result.data}
+        names_by_id = {
+            r["member_id"]: (r.get("bot_members") or {}).get("discord_name", "Unknown")
+            for r in stats_result.data
+        }
 
         tickets_by_member: dict[str, int] = {}
         for t in tickets_result.data:

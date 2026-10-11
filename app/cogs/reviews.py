@@ -41,13 +41,13 @@ class ReviewCog(commands.GroupCog, name="review"):
 
         db = database.get_db()
         members = MemberService(db)
-        reviewer = await members.get_by_discord_id(str(dev.id))
+        reviewer = await members.get_by_discord_id(str(dev.id), str(interaction.guild_id))
         if reviewer is None:
             await interaction.followup.send(f"{dev.display_name} is not a registered member", ephemeral=True)
             return
 
         try:
-            ticket = await TicketService(db, members).get(ticket_id)
+            ticket = await TicketService(db, members, str(interaction.guild_id)).get(ticket_id)
         except ValueError as e:
             await interaction.followup.send(str(e), ephemeral=True)
             return
@@ -89,12 +89,20 @@ class ReviewCog(commands.GroupCog, name="review"):
 
         db = database.get_db()
 
+        # Members are per server, so limiting to this server's members limits the stats to it.
+        guild_members = await MemberService(db).get_all_active(str(interaction.guild_id))
+        guild_member_ids = [str(m.id) for m in guild_members]
+        if not guild_member_ids:
+            await interaction.followup.send("No reviews recorded yet")
+            return
+
         ledger = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: (
                 db.table("bot_xp_ledger")
                 .select("member_id")
                 .eq("action", "pr_reviewed")
+                .in_("member_id", guild_member_ids)
                 .execute()
             )
         )
@@ -108,17 +116,7 @@ class ReviewCog(commands.GroupCog, name="review"):
             await interaction.followup.send("No reviews recorded yet")
             return
 
-        member_ids = list(counts.keys())
-        names_result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: (
-                db.table("bot_members")
-                .select("id, discord_name")
-                .in_("id", member_ids)
-                .execute()
-            )
-        )
-        names = {r["id"]: r["discord_name"] for r in names_result.data}
+        names = {str(m.id): m.discord_name for m in guild_members}
 
         sorted_devs = sorted(counts.items(), key=lambda x: x[1], reverse=True)
         lines = [

@@ -80,13 +80,13 @@ def _make_svc(session_exists=True):
 
 async def test_get_or_create_returns_existing_session():
     svc, _, _ = _make_svc(session_exists=True)
-    session = await svc.get_or_create_today()
+    session = await svc.get_or_create_today("1")
     assert str(session.id) == SESSION_ID
 
 
 async def test_get_or_create_creates_when_missing():
     svc, _, _ = _make_svc(session_exists=False)
-    session = await svc.get_or_create_today()
+    session = await svc.get_or_create_today("1")
     assert session is not None
 
 
@@ -119,13 +119,13 @@ async def test_non_responders_excludes_responders():
     from unittest.mock import patch
     import uuid
 
-    async def _fake_get_all():
+    async def _fake_get_all(guild_id):
         return [responder, non_responder]
 
     members_svc.get_all_active = _fake_get_all
 
     # Override get_responses to return a response for `responder.id`
     with patch.object(svc, "get_responses", new=AsyncMock(return_value=[])):
-        non = await svc.non_responders(SESSION_ID)
+        non = await svc.non_responders(SESSION_ID, "1")
         # Both should be non-responders since no responses
         assert len(non) == 2

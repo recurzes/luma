@@ -110,13 +110,47 @@ class TrackService:
 
 
     # Queries
-    async def list_tracks(self) -> list[Track]:
+    async def list_tracks(self, guild_id: str) -> list[Track]:
+        """Built-in tracks (shared by every server) plus this server's own."""
         result = await run_query(
             self.db.table("companion_tracks")
             .select("*")
+            .or_(f"guild_id.is.null,guild_id.eq.{guild_id}")
             .order("is_builtin.desc, name")
         )
         return [Track(**r) for r in result.data]
+
+
+    async def get_track(self, track_id: UUID) -> Track | None:
+        result = await run_query(
+            self.db.table("companion_tracks")
+            .select("*")
+            .eq("id", str(track_id))
+            .maybe_single()
+        )
+        row = row_or_none(result)
+        return Track(**row) if row else None
+
+
+    async def create_track(
+            self, guild_id: str, name: str, description: str, level: str, created_by: UUID
+    ) -> Track:
+        existing = await self.list_tracks(guild_id)
+        if any(t.name.lower() == name.lower() for t in existing):
+            raise ValueError(f"A track named **{name}** already exists here")
+
+        result = await run_query(
+            self.db.table("companion_tracks")
+            .insert({
+                "guild_id": guild_id,
+                "name": name,
+                "description": description,
+                "level": level,
+                "created_by": str(created_by),
+                "is_builtin": False
+            })
+        )
+        return Track(**result.data[0])
 
 
     async def get_progress(self, member_id: UUID, track_id: UUID) -> TrackProgress | None:

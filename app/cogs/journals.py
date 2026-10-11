@@ -30,6 +30,7 @@ _MOOD_CHOICES = [
 ]
 
 
+@app_commands.guild_only()
 class JournalCog(commands.GroupCog, name="journal"):
     adr = app_commands.Group(name="adr", description="Architectural Decision Records")
 

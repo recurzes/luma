@@ -33,6 +33,7 @@ _LEVEL_CHOICES = [
 ]
 
 
+@app_commands.guild_only()
 class TrackCog(commands.GroupCog, name="track"):
     checkpoint = app_commands.Group(name="checkpoint", description="Checkpoint commands")
 
@@ -57,7 +58,7 @@ class TrackCog(commands.GroupCog, name="track"):
             return
 
         svc = self._svc()
-        tracks = await svc.list_tracks()
+        tracks = await svc.list_tracks(str(interaction.guild_id))
 
         db = database.get_db()
         progress_result = await run_query(
@@ -83,7 +84,7 @@ class TrackCog(commands.GroupCog, name="track"):
             return
 
         svc = self._svc()
-        tracks = await svc.list_tracks()
+        tracks = await svc.list_tracks(str(interaction.guild_id))
         track = next((t for t in tracks if t.name.lower() == name.lower()), None)
 
         if not track:
@@ -287,24 +288,23 @@ class TrackCog(commands.GroupCog, name="track"):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        db = database.get_db()
         try:
             member = await require_member(interaction)
         except RuntimeError:
             return
 
-        result = await run_query(
-            db.table("companion_tracks")
-            .insert({
-                "name": name,
-                "description": description,
-                "level": level.value,
-                "created_by": str(member.id),
-                "is_builtin": False
-            })
-        )
+        try:
+            track = await self._svc().create_track(
+                guild_id=str(interaction.guild_id),
+                name=name.strip(),
+                description=description,
+                level=level.value,
+                created_by=member.id
+            )
+        except ValueError as e:
+            await interaction.followup.send(f"{e}", ephemeral=True)
+            return
 
-        track = Track(**result.data[0])
         embed = build_track_created_embed(track)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -335,21 +335,24 @@ class TrackCog(commands.GroupCog, name="track"):
 
         db = database.get_db()
 
-        track_result = await run_query(
-            db.table("companion_tracks")
-            .select("*")
-            .ilike("name", track_name)
-            .maybe_single()
-        )
-        track_row = row_or_none(track_result)
-        if not track_row:
+        # Only this server's own tracks: built-in tracks are shared with every server.
+        tracks = await self._svc().list_tracks(str(interaction.guild_id))
+        track = next((t for t in tracks if t.name.lower() == track_name.strip().lower()), None)
+        if track is None:
             await interaction.followup.send(
                 f"No track named **{track_name}** found.",
                 ephemeral=True
             )
             return
+        if track.guild_id is None:
+            await interaction.followup.send(
+                f"**{track.name}** is a built-in track shared by every server and can't be edited here. "
+                "Create your own with `/track create`",
+                ephemeral=True
+            )
+            return
 
-        track_id = track_row["id"]
+        track_id = str(track.id)
 
         if knowledge_check and not answer:
             await interaction.followup.send(
@@ -392,7 +395,7 @@ class TrackCog(commands.GroupCog, name="track"):
 
         embed = build_checkpoint_added_embed(
             checkpoint=checkpoint,
-            track_name=track_row["name"],
+            track_name=track.name,
             total_checkpoints=next_seq
         )
         await interaction.followup.send(embed=embed, ephemeral=True)

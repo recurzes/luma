@@ -32,8 +32,13 @@ async def reply_ephemeral(interaction: discord.Interaction, content: str | None 
 
 
 async def require_member(interaction: discord.Interaction) -> Member:
+    # Members are per server, so there is nothing to look up outside one.
+    if interaction.guild_id is None:
+        await reply_ephemeral(interaction, "This command must be used inside a server.")
+        raise RuntimeError(f"User {interaction.user.id} used a member command outside a server")
+
     service = MemberService(database.get_db())
-    member = await service.get_by_discord_id(str(interaction.user.id))
+    member = await service.get_by_discord_id(str(interaction.user.id), str(interaction.guild_id))
 
     if member is None:
         embed = discord.Embed(

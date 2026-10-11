@@ -145,6 +145,18 @@ COMMAND_GROUPS: dict[str, GroupHelp] = {
         commands=(
             CommandHelp("current", "Show active phase and checklist.", "/phase current"),
             CommandHelp(
+                "create",
+                "Add a phase to this server.",
+                "/phase create key:phase-1 name:Foundations",
+                notes="Lead/Professor only. The first phase starts active.",
+            ),
+            CommandHelp(
+                "add-criterion",
+                "Add an exit criterion to a phase.",
+                "/phase add-criterion description:All tests pass",
+                notes="Lead/Professor only.",
+            ),
+            CommandHelp(
                 "criteria",
                 "Check off an exit criterion.",
                 "/phase criteria item_number:1",
@@ -231,8 +243,8 @@ COMMAND_GROUPS: dict[str, GroupHelp] = {
         commands=(
             CommandHelp(
                 "assign",
-                "Manually assign a PR reviewer.",
-                "/review assign dev:@Dev pr_number:42",
+                "Manually assign a ticket's reviewer.",
+                "/review assign dev:@Dev ticket_id:a1b2c3d4",
                 notes="Lead/Professor only.",
             ),
             CommandHelp("stats", "Show PR review counts.", "/review stats"),

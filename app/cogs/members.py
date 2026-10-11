@@ -30,6 +30,7 @@ def _detect_role(member: discord.Member) -> tuple[str, str]:
     return "beginner", "T1"
 
 
+@app_commands.guild_only()
 class MemberCog(commands.GroupCog, name="member"):
     notifications = app_commands.Group(
         name="notifications",
@@ -69,12 +70,13 @@ class MemberCog(commands.GroupCog, name="member"):
         guild_id = str(interaction.guild_id)
         guild_name = interaction.guild.name
 
-        existing = await self._service.get_by_discord_id(str(interaction.user.id))
+        existing = await self._service.get_by_discord_id(str(interaction.user.id), guild_id)
 
         try:
             if existing is None:
                 member = await self._service.register(
                     discord_id=str(interaction.user.id),
+                    guild_id=guild_id,
                     discord_name=interaction.user.display_name,
                     role=role,
                     tier_max=tier_max,
@@ -82,6 +84,7 @@ class MemberCog(commands.GroupCog, name="member"):
             else:
                 member = await self._service.update_role_and_tier(
                     discord_id=str(interaction.user.id),
+                    guild_id=guild_id,
                     role=role,
                     tier_max=tier_max,
                     discord_name=interaction.user.display_name,
@@ -115,9 +118,9 @@ class MemberCog(commands.GroupCog, name="member"):
             await interaction.followup.send("This command must be used inside the server.", ephemeral=True)
             return
 
-        member = await self._service.get_by_discord_id(str(interaction.user.id))
+        member = await self._service.get_by_discord_id(str(interaction.user.id), str(interaction.guild_id))
         if member is None:
-            await interaction.followup.send("You are not registered with Luma.", ephemeral=True)
+            await interaction.followup.send("You are not registered with Luma in this server.", ephemeral=True)
             return
 
         try:
@@ -309,7 +312,7 @@ class MemberCog(commands.GroupCog, name="member"):
         await interaction.response.defer(ephemeral=True)
 
         lookup_id = str((target or interaction.user).id)
-        member = await self._service.get_by_discord_id(lookup_id)
+        member = await self._service.get_by_discord_id(lookup_id, str(interaction.guild_id))
 
         if member is None:
             await interaction.followup.send("That user is not registered", ephemeral=True)
@@ -340,7 +343,7 @@ class MemberCog(commands.GroupCog, name="member"):
         except RuntimeError:
             return
 
-        member = await self._service.update_github_username(str(interaction.user.id), username)
+        member = await self._service.update_github_username(str(interaction.user.id), str(interaction.guild_id), username)
 
         embed = discord.Embed(
             title="GitHub linked",

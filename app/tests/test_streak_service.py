@@ -127,14 +127,13 @@ async def test_check_all_streaks_resets_inactive_member():
 
     member_obj = MagicMock()
     member_obj.id = uuid4()
-    members_svc.get_all_active = MagicMock(return_value=None)
 
     import asyncio
 
     async def _fake_get_all():
         return [member_obj]
 
-    members_svc.get_all_active = _fake_get_all
+    members_svc.get_all = _fake_get_all
 
     call_n = {"n": 0}
 
@@ -171,7 +170,7 @@ async def test_check_all_streaks_skips_zero_streak_member():
     async def _fake_get_all():
         return [member_obj]
 
-    members_svc.get_all_active = _fake_get_all
+    members_svc.get_all = _fake_get_all
 
     def _table(name):
         c = _chain()
@@ -242,7 +241,7 @@ async def test_at_risk_excludes_zero_streaks_and_members_active_today():
     async def _all():
         return [risky, safe, no_streak]
 
-    members_svc.get_all_active = _all
+    members_svc.get_all = _all
     stats_chain = _chain(data=[{"member_id": str(risky.id)}, {"member_id": str(safe.id)}])
     log_chain = _chain(data=[{"member_id": str(safe.id)}])
     db.table.side_effect = lambda name: log_chain if "streak_log" in name else stats_chain

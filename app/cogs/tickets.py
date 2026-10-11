@@ -97,7 +97,7 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
                 )
                 return
 
-        service = self._cog._ticket_service()
+        service = self._cog._ticket_service(interaction.guild_id)
 
         ticket = await service.create(
             payload=TicketCreate(
@@ -127,17 +127,18 @@ class TicketModal(discord.ui.Modal, title="Create Ticket"):
 
 # Cog
 
+@app_commands.guild_only()
 class TicketCog(commands.GroupCog, name="ticket"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         super().__init__()
 
-    def _ticket_service(self) -> TicketService:
+    def _ticket_service(self, guild_id: int | None) -> TicketService:
         db = database.get_db()
         members = MemberService(db)
         xp = XPService(db)
         streak = StreakService(db, members)
-        return TicketService(db, members, xp_service=xp, streak_service=streak)
+        return TicketService(db, members, str(guild_id), xp_service=xp, streak_service=streak)
 
     def _project_service(self) -> ProjectService:
         svc = getattr(self.bot, "services", {}).get("project")
@@ -175,7 +176,7 @@ class TicketCog(commands.GroupCog, name="ticket"):
         except RuntimeError:
             return
 
-        service = self._ticket_service()
+        service = self._ticket_service(interaction.guild_id)
 
         try:
             result = await service.assign(ticket_id, str(member.id))
@@ -195,7 +196,7 @@ class TicketCog(commands.GroupCog, name="ticket"):
             return
 
         member_svc = MemberService(database.get_db())
-        assignee_record = await member_svc.get_by_discord_id(str(member.id))
+        assignee_record = await member_svc.get_by_discord_id(str(member.id), str(interaction.guild_id))
 
         embed = build_ticket_embed(result.ticket, assignee=assignee_record)
 
@@ -240,7 +241,7 @@ class TicketCog(commands.GroupCog, name="ticket"):
         except RuntimeError:
             return
 
-        service = self._ticket_service()
+        service = self._ticket_service(interaction.guild_id)
 
         try:
             updated = await service.update_status(ticket_id, new_status.value, str(interaction.user.id))
@@ -251,8 +252,7 @@ class TicketCog(commands.GroupCog, name="ticket"):
         member_svc = MemberService(database.get_db())
         assignee = None
         if updated.assignee_id:
-            all_members = await member_svc.get_all_active()
-            assignee = next((m for m in all_members if m.id == updated.assignee_id), None)
+            assignee = await member_svc.get_by_id(str(updated.assignee_id))
 
         embed = build_ticket_embed(updated, assignee=assignee)
 
@@ -280,7 +280,7 @@ class TicketCog(commands.GroupCog, name="ticket"):
         except RuntimeError:
             return
 
-        service = self._ticket_service()
+        service = self._ticket_service(interaction.guild_id)
 
         try:
             close_result = await service.close(ticket_id, str(interaction.user.id))
@@ -331,7 +331,7 @@ class TicketCog(commands.GroupCog, name="ticket"):
         except RuntimeError:
             return
 
-        service = self._ticket_service()
+        service = self._ticket_service(interaction.guild_id)
         open_tickets = await service.get_by_assignee(str(interaction.user.id))
 
         if not open_tickets:
@@ -356,7 +356,7 @@ class TicketCog(commands.GroupCog, name="ticket"):
     async def board(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
-        service = self._ticket_service()
+        service = self._ticket_service(interaction.guild_id)
         all_tickets = await service.get_all()
 
         embed = build_board_embed(all_tickets)

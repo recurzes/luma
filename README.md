@@ -45,11 +45,18 @@ Option B: Create two services manually
 Multi-server mode
 - Leave `DISCORD_GUILD_ID` unset to enable global command sync
 - The bot will create the `LumaBot` category and required channels in every server it joins
+- Every server has its own data. A member is one row per (Discord user, server), so XP, streaks,
+  badges, tickets, standups, phases, sprints and journals in one server are invisible in another.
+  Members run `/member register` (and `/member github`) once per server
+- Shared across servers: badge definitions, XP values, and the built-in learning tracks
+- A new server starts with no phases; a Lead or Professor adds them with `/phase create`
 
 Webhook setup
 - Expose only the webhooks service publicly
-- Point GitHub webhooks to: `https://<your-domain>/` (port 8100)
+- Point GitHub webhooks to: `https://<your-domain>/webhooks/github` (port 8100)
 - Use `GITHUB_WEBHOOK_SECRET` to validate signatures
+- One webhook URL serves every server. An event is delivered to the server(s) whose project is
+  linked to that repository with `/project link-repo`; events from unlinked repositories are ignored
 
 ## Structure
 
@@ -73,7 +80,11 @@ app/
 Apply migrations to Supabase in order:
 
 ```bash
-# via supabase CLI or directly in SQL Editor
+# via supabase CLI or directly in SQL Editor, in numeric order
 psql $SUPABASE_URL -f app/migrations/001_bot_tables.sql
 psql $SUPABASE_URL -f app/migrations/002_seed.sql
+# ... 004 through 015
 ```
+
+`015_multi_guild.sql` splits data per server. Before running it, set `home_guild` at the top of
+the file to the Discord server ID that owns the existing data, stop the bot, apply it, then deploy.

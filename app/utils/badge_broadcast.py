@@ -42,15 +42,18 @@ def make_badge_announcer(bot: discord.Client, db: Client):
 async def post_badges_to_shoutouts(bot: discord.Client | None, member: Member, badges: list[Badge]) -> None:
     if bot is None or not badges:
         return
+    # A member belongs to one server; their badges are announced only there.
+    guild = bot.get_guild(int(member.guild_id))
+    if guild is None:
+        return
     shoutouts_name = channels.CHANNEL_MANIFEST.get("shoutouts", ("shoutouts", ""))[0]
-    for guild in bot.guilds:
-        channel = None
-        if hasattr(bot, "get_text_channel"):
-            channel = bot.get_text_channel("shoutouts", guild)
-        if channel is None:
-            channel = discord.utils.get(guild.text_channels, name=shoutouts_name)
-        if not isinstance(channel, discord.TextChannel):
-            continue
-        for badge in badges:
-            embed = build_badge_award_embed(member, badge)
-            await channel.send(embed=embed)
+    channel = None
+    if hasattr(bot, "get_text_channel"):
+        channel = bot.get_text_channel("shoutouts", guild)
+    if channel is None:
+        channel = discord.utils.get(guild.text_channels, name=shoutouts_name)
+    if not isinstance(channel, discord.TextChannel):
+        return
+    for badge in badges:
+        embed = build_badge_award_embed(member, badge)
+        await channel.send(embed=embed)

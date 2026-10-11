@@ -27,6 +27,7 @@ _PAIR_TOPIC_PREFIX = "Pair session: "
 _PAIR_LIFETIME = timedelta(hours=2)
 
 
+@app_commands.guild_only()
 class StuckCog(commands.GroupCog, name="stuck"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -104,7 +105,7 @@ class StuckCog(commands.GroupCog, name="stuck"):
 
         helper_member = None
         if helper:
-            helper_member = await MemberService(database.get_db()).get_by_discord_id(str(helper.id))
+            helper_member = await MemberService(database.get_db()).get_by_discord_id(str(helper.id), str(interaction.guild_id))
             if helper_member is None:
                 await interaction.followup.send(
                     f"{helper.display_name} is not a registered member, so they can't be credited",
@@ -140,7 +141,6 @@ class StuckCog(commands.GroupCog, name="stuck"):
 
     @app_commands.command(name="pair", description="Create a temporary pair programming session (Lead/Professor only)")
     @app_commands.describe(dev1="First developer", dev2="Second developer", topic="Topic or ticket ID")
-    @app_commands.guild_only()
     @staff_only()
     async def pair(self, interaction: discord.Interaction, dev1: discord.Member, dev2: discord.Member, topic: str = "pairing") -> None:
         await interaction.response.defer(ephemeral=True)

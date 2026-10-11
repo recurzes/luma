@@ -32,6 +32,7 @@ class MemberService:
     async def register(
             self,
             discord_id: str,
+            guild_id: str,
             discord_name: str,
             role: str,
             tier_max: str
@@ -41,9 +42,9 @@ class MemberService:
         if tier_max not in _VALID_TIERS:
             raise ValueError(f"Invalid tier_max: {tier_max!r}. Must be one of {_VALID_TIERS}")
 
-        existing = await self.get_by_discord_id(discord_id)
+        existing = await self.get_by_discord_id(discord_id, guild_id)
         if existing is not None:
-            raise ValueError(f"Member with discord_id {discord_id!r} is already registered")
+            raise ValueError(f"Member with discord_id {discord_id!r} is already registered in this server")
 
         def _insert():
             return (
@@ -51,6 +52,7 @@ class MemberService:
                 .insert(
                     {
                         "discord_id": discord_id,
+                        "guild_id": guild_id,
                         "discord_name": discord_name,
                         "role": role,
                         "tier_max": tier_max
@@ -71,15 +73,16 @@ class MemberService:
 
         await asyncio.get_event_loop().run_in_executor(None, _stats)
 
-        log.info("member.registered", discord_id=discord_id, role=role, tier_max=tier_max)
+        log.info("member.registered", discord_id=discord_id, guild_id=guild_id, role=role, tier_max=tier_max)
         return member
 
-    async def get_by_discord_id(self, discord_id: str) -> Member | None:
+    async def get_by_discord_id(self, discord_id: str, guild_id: str) -> Member | None:
         def _fetch():
             return (
                 self._db.table("bot_members")
                 .select("*")
                 .eq("discord_id", discord_id)
+                .eq("guild_id", guild_id)
                 .limit(1)
                 .execute()
             )
@@ -104,19 +107,29 @@ class MemberService:
             return None
         return self._parse(result.data[0])
 
-    async def get_all_active(self) -> list[Member]:
+    async def get_all_active(self, guild_id: str) -> list[Member]:
+        """Every member of one server."""
+        def _fetch():
+            return self._db.table("bot_members").select("*").eq("guild_id", guild_id).execute()
+
+        result = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        return [self._parse(row) for row in result.data]
+
+    async def get_all(self) -> list[Member]:
+        """Every member of every server. Only for jobs that sweep all servers."""
         def _fetch():
             return self._db.table("bot_members").select("*").execute()
 
         result = await asyncio.get_event_loop().run_in_executor(None, _fetch)
         return [self._parse(row) for row in result.data]
 
-    async def update_github_username(self, discord_id: str, github_username: str) -> Member:
+    async def update_github_username(self, discord_id: str, guild_id: str, github_username: str) -> Member:
         def _update():
             return (
                 self._db.table("bot_members")
                 .update({"github_username": github_username})
                 .eq("discord_id", discord_id)
+                .eq("guild_id", guild_id)
                 .execute()
             )
 
@@ -127,18 +140,19 @@ class MemberService:
         log.info("member.github_linked", discord_id=discord_id, github_username=github_username)
         return self._parse(result.data[0])
 
-    async def get_tier_max(self, discord_id: str) -> str:
-        member = await self.get_by_discord_id(discord_id)
+    async def get_tier_max(self, discord_id: str, guild_id: str) -> str:
+        member = await self.get_by_discord_id(discord_id, guild_id)
         if member is None:
             raise ValueError(f"No member found with discord_id {discord_id!r}")
         return member.tier_max
 
-    async def exists(self, discord_id: str) -> bool:
-        return await self.get_by_discord_id(discord_id) is not None
+    async def exists(self, discord_id: str, guild_id: str) -> bool:
+        return await self.get_by_discord_id(discord_id, guild_id) is not None
 
     async def update_role_and_tier(
             self,
             discord_id: str,
+            guild_id: str,
             role: str,
             tier_max: str,
             discord_name: str | None = None,
@@ -157,6 +171,7 @@ class MemberService:
                 self._db.table("bot_members")
                 .update(payload)
                 .eq("discord_id", discord_id)
+                .eq("guild_id", guild_id)
                 .execute()
             )
 

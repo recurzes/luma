@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 
 import discord
@@ -14,17 +13,17 @@ from app.services.badge_service import BadgeService
 from app.services.member_service import MemberService
 from app.services.xp_service import XPService
 from app.utils.badge_broadcast import post_badges_to_shoutouts
-from app.utils.guards import require_member
+from app.utils.db import run_query
+from app.utils.guards import require_member, staff_only
 
 log = structlog.get_logger()
-
-_active_sprint: dict | None = None
 
 # /shoutout and /share each award XP, so cap them per user: 3 uses per hour.
 _XP_COMMAND_RATE = 3
 _XP_COMMAND_PER_SECONDS = 3600.0
 
 
+@app_commands.guild_only()
 class CultureCog(commands.GroupCog, name="culture"):
     sprint = app_commands.Group(name="sprint", description="Sprint challenge commands")
 
@@ -61,7 +60,7 @@ class CultureCog(commands.GroupCog, name="culture"):
 
         db = database.get_db()
         member_svc = MemberService(db)
-        receiver = await member_svc.get_by_discord_id(str(member.id))
+        receiver = await member_svc.get_by_discord_id(str(member.id), str(interaction.guild_id))
         xp = self._xp()
 
         await xp.award(str(sender.id), "shoutout_given")
@@ -137,15 +136,26 @@ class CultureCog(commands.GroupCog, name="culture"):
         await interaction.followup.send("Resource shared!", ephemeral=True)
 
 
-    @sprint.command(name="start", description="Start a sprint challenge (Lead only)")
+    async def _active_sprint(self, guild_id: str) -> dict | None:
+        result = await run_query(
+            database.get_db().table("bot_sprints")
+            .select("*")
+            .eq("guild_id", guild_id)
+            .eq("status", "active")
+            .order("started_at", desc=True)
+            .limit(1)
+        )
+        return result.data[0] if result.data else None
+
+    @sprint.command(name="start", description="Start a sprint challenge (Lead/Professor only)")
     @app_commands.describe(name="Sprint name", days="Duration in days")
+    @staff_only()
     async def sprint_start(
             self,
             interaction: discord.Interaction,
             name: str,
             days: int = 7
     ) -> None:
-        global _active_sprint
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -153,37 +163,26 @@ class CultureCog(commands.GroupCog, name="culture"):
         except RuntimeError:
             return
 
-        if caller.role not in {"lead", "professor"}:
-            await interaction.followup.send("Only Lead or Professor can start sprints", ephemeral=True)
-            return
-
-        if _active_sprint:
+        guild_id = str(interaction.guild_id)
+        active = await self._active_sprint(guild_id)
+        if active:
             await interaction.followup.send(
-                f"Sprint **{_active_sprint['name']}** is already active. End it first with `/culture sprint end`",
+                f"Sprint **{active['name']}** is already active. End it first with `/culture sprint end`",
                 ephemeral=True
             )
             return
 
-        now = datetime.now(timezone.utc)
-        _active_sprint = {"name": name, "days": days, "started_at": now, "started_by": str(caller.id)}
-
-        try:
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: (
-                    database.get_db().table("bot_sprints")
-                    .insert({
-                        "name": name,
-                        "days": days,
-                        "started_by": str(caller.id),
-                        "started_at": now.isoformat(),
-                        "status": "active"
-                    })
-                    .execute()
-                )
-            )
-        except Exception as exc:
-            log.warning("sprint.db_persist_failed", error=str(exc))
+        await run_query(
+            database.get_db().table("bot_sprints")
+            .insert({
+                "guild_id": guild_id,
+                "name": name,
+                "days": days,
+                "started_by": str(caller.id),
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "status": "active"
+            })
+        )
 
         embed = discord.Embed(
             title=f"Sprint Started — {name}",
@@ -201,44 +200,34 @@ class CultureCog(commands.GroupCog, name="culture"):
         await interaction.followup.send(f"Sprint **{name}** started!", ephemeral=True)
 
 
-    @sprint.command(name="end", description="End the active sprint (Lead only)")
+    @sprint.command(name="end", description="End the active sprint (Lead/Professor only)")
+    @staff_only()
     async def sprint_end(self, interaction: discord.Interaction) -> None:
-        global _active_sprint
         await interaction.response.defer(ephemeral=True)
 
         try:
-            caller = await require_member(interaction)
+            await require_member(interaction)
         except RuntimeError:
             return
 
-        if caller.role not in {"lead", "professor"}:
-            await interaction.followup.send("Only Lead or Professor can end sprints", ephemeral=True)
-            return
-
-        if not _active_sprint:
+        guild_id = str(interaction.guild_id)
+        active = await self._active_sprint(guild_id)
+        if not active:
             await interaction.followup.send("No active sprint", ephemeral=True)
             return
 
-        sprint_name = _active_sprint["name"]
-        started_at = _active_sprint["started_at"]
-        elapsed = (datetime.now(timezone.utc) - started_at).days
-
-        stats = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: (
-                database.get_db().table("bot_member_stats")
-                .select("member_id, total_xp")
-                .order("total_xp", desc=True)
-                .limit(5)
-                .execute()
-            )
+        now = datetime.now(timezone.utc)
+        await run_query(
+            database.get_db().table("bot_sprints")
+            .update({"status": "ended", "ended_at": now.isoformat()})
+            .eq("id", active["id"])
         )
+        elapsed = (now - datetime.fromisoformat(active["started_at"])).days
 
-        _active_sprint = None
-
-        lines = [f"**{r['member_id'][:8]}…** — {r['total_xp']} XP" for r in (stats.data or [])]
+        top = await self._xp().leaderboard(guild_id, limit=5)
+        lines = [f"**{e.discord_name}** — {e.total_xp} XP" for e in top]
         embed = discord.Embed(
-            title=f"Sprint Ended — {sprint_name}",
+            title=f"Sprint Ended — {active['name']}",
             description=f"Duration: {elapsed} day(s)\n\nTop performers:\n" + "\n".join(lines or ["—"]),
             color=discord.Color.orange()
         )

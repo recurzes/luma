@@ -7,7 +7,9 @@ from pydantic import BaseModel
 
 
 class Member(BaseModel):
+    """One Discord user in one server. The same person in two servers is two members."""
     id: UUID
+    guild_id: str
     discord_id: str
     discord_name: str
     github_username: str | None
@@ -17,6 +19,7 @@ class Member(BaseModel):
 
 
 class MemberCreate(BaseModel):
+    guild_id: str
     discord_id: str
     discord_name: str
     role: str

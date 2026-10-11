@@ -338,6 +338,7 @@ def _standup_db(session_ids, responded_ids):
         return chain
 
     tables = {
+        "bot_members": _chain([{"guild_id": "1"}]),
         "bot_standup_sessions": _chain([{"id": s} for s in session_ids]),
         "bot_standup_responses": _chain([{"session_id": s} for s in responded_ids]),
     }
