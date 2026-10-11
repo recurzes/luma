@@ -31,11 +31,13 @@ from app.services.ticket_service import TicketService
 
 
 MEMBER_ID = uuid4()
+GUILD_ID = "1"
 TICKET_ID = uuid4()
 NOW = datetime.now(tz=timezone.utc)
 
 BEGINNER_ROW = {
     "id": str(MEMBER_ID),
+    "guild_id": GUILD_ID,
     "discord_id": "111",
     "discord_name": "BeginnerDev",
     "github_username": None,
@@ -46,6 +48,7 @@ BEGINNER_ROW = {
 
 LEAD_ROW = {
     "id": str(uuid4()),
+    "guild_id": GUILD_ID,
     "discord_id": "222",
     "discord_name": "LeadDev",
     "github_username": None,
@@ -113,7 +116,7 @@ def _mock_db(ticket_rows=None, member_rows=None, stats_rows=None, t2_count=0):
 def _make_service(db, member_rows=None):
     from app.services.member_service import MemberService
     member_svc = MemberService(db)
-    return TicketService(db, member_svc)
+    return TicketService(db, member_svc, GUILD_ID)
 
 
 @pytest.mark.asyncio
@@ -290,7 +293,7 @@ async def test_close_credits_the_assignee_not_the_closer():
     db = _close_db(assigned_row, member_rows=[BEGINNER_ROW])
     xp = _xp_mock()
     from app.services.member_service import MemberService
-    service = TicketService(db, MemberService(db), xp_service=xp)
+    service = TicketService(db, MemberService(db), GUILD_ID, xp_service=xp)
 
     with patch("app.services.ticket_service.BadgeService") as badge_cls:
         badge_cls.return_value.check_and_award = AsyncMock(return_value=[])
@@ -306,7 +309,7 @@ async def test_close_unassigned_ticket_awards_nothing():
     db = _close_db(TICKET_ROW)
     xp = _xp_mock()
     from app.services.member_service import MemberService
-    service = TicketService(db, MemberService(db), xp_service=xp)
+    service = TicketService(db, MemberService(db), GUILD_ID, xp_service=xp)
 
     result = await service.close(str(TICKET_ID), "111")
 

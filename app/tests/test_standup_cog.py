@@ -8,6 +8,7 @@ os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-key")
 os.environ.setdefault("GITHUB_WEBHOOK_SECRET", "test-secret")
 
+from collections import deque
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,18 +29,22 @@ def _dm(content: str) -> MagicMock:
     return message
 
 
-@pytest.fixture
-def pending():
-    standup._PENDING[USER_ID] = {
-        "session_id": "session",
-        "member_id": "member",
-        "guild_id": "1",
-        "guild_name": "guild",
+def _state(guild_id: str, guild_name: str) -> dict:
+    return {
+        "session_id": f"session-{guild_id}",
+        "member_id": f"member-{guild_id}",
+        "guild_id": guild_id,
+        "guild_name": guild_name,
         "stage": 0,
         "yesterday": None,
         "today": None,
         "blockers": None,
     }
+
+
+@pytest.fixture
+def pending():
+    standup._PENDING[USER_ID] = deque([_state("1", "Server A")])
     yield standup._PENDING
     standup._PENDING.pop(USER_ID, None)
 
@@ -63,8 +68,8 @@ async def test_three_replies_complete_the_standup(pending, monkeypatch):
     await cog.on_message(_dm("none"))
 
     svc.save_response.assert_awaited_once_with(
-        session_id="session",
-        member_id="member",
+        session_id="session-1",
+        member_id="member-1",
         yesterday="shipped auth",
         today="writing tests",
         blockers="none",

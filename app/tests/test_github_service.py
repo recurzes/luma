@@ -27,9 +27,13 @@ from app.models.member import Member
 from app.services.github_service import GitHubService
 
 
+GUILD_ID = "1"
+
+
 def _member() -> Member:
     return Member.model_validate({
         "id": str(uuid4()),
+        "guild_id": GUILD_ID,
         "discord_id": "111",
         "discord_name": "Dev",
         "github_username": "devuser",
@@ -51,7 +55,7 @@ def _make_svc() -> GitHubService:
 async def test_process_pull_request_merged_calls_handle_pr_merged_with_correct_args():
     svc = _make_svc()
     author = _member()
-    event_row = {"event_type": "pull_request", "actor": "devuser", "payload": {}}
+    event_row = {"event_type": "pull_request", "actor": "devuser", "payload": {}, "guild_id": GUILD_ID}
     pr = {
         "number": 42,
         "title": "Fix bug",
@@ -133,12 +137,14 @@ async def test_process_pending_marks_success_and_keeps_failures_queued():
         marks[event_id] = fields
 
     with patch.object(svc, "fetch_pending_events", AsyncMock(return_value=events)), \
+            patch.object(svc, "guilds_for_repo", AsyncMock(return_value=[GUILD_ID])), \
             patch.object(svc, "process_push", _push), \
             patch.object(svc, "_mark_event", _mark):
         processed, failed = await svc.process_pending()
 
     assert (processed, failed) == (2, 1)
-    assert "processed_at" in marks["ok"] and "processed_at" in marks["unknown"]
+    assert marks["ok"]["guild_id"] == GUILD_ID
+    assert "processed_at" in marks["unknown"] and "guild_id" not in marks["unknown"]
     assert marks["bad"] == {"attempts": 2, "last_error": "discord down"}
 
 
@@ -147,7 +153,7 @@ async def test_push_awards_each_commit_once_per_event():
     svc._xp.award = AsyncMock()
     svc._streak.record_activity = AsyncMock()
     event_row = {
-        "id": "evt-1", "event_type": "push", "actor": "devuser",
+        "id": "evt-1", "event_type": "push", "actor": "devuser", "guild_id": GUILD_ID,
         "payload": {"pusher": {"name": "devuser"}, "ref": "refs/heads/main",
                     "commits": [{"id": "sha1", "message": "one"}, {"id": "sha2", "message": "two"}]},
     }

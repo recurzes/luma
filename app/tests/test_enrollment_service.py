@@ -46,6 +46,7 @@ ENROLLMENT_ROW = {
 
 MEMBER_ROW = {
     "id": str(MEMBER_ID),
+    "guild_id": "1",
     "discord_id": "123456789",
     "discord_name": "TestDev",
     "github_username": None,

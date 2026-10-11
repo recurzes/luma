@@ -121,7 +121,7 @@ async def test_leaderboard_empty_returns_empty():
 
     db.table.side_effect = lambda name: _chain()
     svc = XPService(db)
-    result = await svc.leaderboard()
+    result = await svc.leaderboard("1")
     assert result == []
 
 
@@ -135,8 +135,10 @@ async def test_leaderboard_ordered_by_xp():
         c = MagicMock()
         r = MagicMock()
         r.data = [
-            {"member_id": mid1, "total_xp": 200, "level": 2, "current_streak": 5},
-            {"member_id": mid2, "total_xp": 100, "level": 1, "current_streak": 1},
+            {"member_id": mid1, "total_xp": 200, "level": 2, "current_streak": 5,
+             "bot_members": {"discord_id": "10", "discord_name": "Alice", "guild_id": "1"}},
+            {"member_id": mid2, "total_xp": 100, "level": 1, "current_streak": 1,
+             "bot_members": {"discord_id": "20", "discord_name": "Bob", "guild_id": "1"}},
         ]
         c.execute.return_value = r
         for m in ["select", "eq", "order", "limit", "in_"]:
@@ -160,9 +162,11 @@ async def test_leaderboard_ordered_by_xp():
             return _chain_stats()
         return _chain_members()
 
-    db.table.side_effect = _table
+    stats_chain = _chain_stats()
+    db.table.side_effect = lambda name: stats_chain if "stat" in name else _chain_members()
     svc = XPService(db)
-    entries = await svc.leaderboard()
+    entries = await svc.leaderboard("1")
+    stats_chain.eq.assert_called_once_with("bot_members.guild_id", "1")
     assert len(entries) == 2
     assert entries[0].discord_name == "Alice"
     assert entries[0].rank == 1
