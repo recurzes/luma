@@ -223,6 +223,9 @@ async def test_assign_t1_to_lead_always_ok():
 
     result = await service.assign(str(TICKET_ID), "222")
     assert result.first_t2 is False
+    # Assigning counts as activity, so the stale-ticket check does not fire straight away.
+    update_payload = db.table("bot_tickets").update.call_args.args[0]
+    assert update_payload["status"] == "in_progress" and "updated_at" in update_payload
 
 
 @pytest.mark.asyncio

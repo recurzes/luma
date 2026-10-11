@@ -28,7 +28,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 
-from app.services.member_service import MemberService
+from app.services.member_service import GithubUsernameTakenError, MemberService, normalize_github_username
 
 # ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -59,6 +59,8 @@ def _mock_db(rows: list[dict] | None = None):
     chain.insert.return_value = chain
     chain.update.return_value = chain
     chain.eq.return_value = chain
+    chain.neq.return_value = chain
+    chain.ilike.return_value = chain
     chain.limit.return_value = chain
 
     db = MagicMock()
@@ -123,11 +125,16 @@ async def test_get_by_discord_id_not_found():
 @pytest.mark.asyncio
 async def test_update_github_username():
     updated_row = {**MEMBER_ROW, "github_username": "testdev-gh"}
-    db, chain, _ = _mock_db(rows=[updated_row])
+    db, chain, _ = _mock_db()
+    # first call: nobody else holds the username; second call: the update
+    chain.execute.side_effect = [MagicMock(data=[]), MagicMock(data=[updated_row])]
     service = MemberService(db)
 
-    member = await service.update_github_username("123456789", GUILD_ID, "testdev-gh")
+    member = await service.update_github_username("123456789", GUILD_ID, "@testdev-gh ")
     assert member.github_username == "testdev-gh"
+    chain.update.assert_called_once_with({"github_username": "testdev-gh"})
+    chain.ilike.assert_called_once_with("github_username", "testdev-gh")
+    chain.neq.assert_called_once_with("discord_id", "123456789")
 
 
 @pytest.mark.asyncio
@@ -167,3 +174,24 @@ async def test_register_invalid_tier_raises():
     service = MemberService(db)
     with pytest.raises(ValueError, match="Invalid tier_max"):
         await service.register("1", GUILD_ID, "Dev", "beginner", "T9")
+
+
+@pytest.mark.asyncio
+async def test_update_github_username_taken_by_another_member_raises():
+    db, chain, _ = _mock_db(rows=[{"discord_id": "999"}])
+    service = MemberService(db)
+
+    with pytest.raises(GithubUsernameTakenError):
+        await service.update_github_username("123456789", GUILD_ID, "TestDev-GH")
+    chain.update.assert_not_called()
+
+
+@pytest.mark.parametrize("value", ["", "-lead", "trail-", "two--hyphens", "has space", "a" * 40, "x%", "https://github.com/octocat"])
+def test_invalid_github_usernames_are_rejected(value):
+    with pytest.raises(ValueError, match="not a valid GitHub username"):
+        normalize_github_username(value)
+
+
+@pytest.mark.parametrize("value,expected", [("octocat", "octocat"), ("@Octo-Cat1", "Octo-Cat1"), ("a" * 39, "a" * 39), (" x ", "x")])
+def test_valid_github_usernames_are_normalised(value, expected):
+    assert normalize_github_username(value) == expected

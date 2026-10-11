@@ -167,3 +167,64 @@ async def test_push_awards_each_commit_once_per_event():
 
     keys = [call.kwargs["dedupe_key"] for call in svc._xp.award.await_args_list]
     assert keys == ["evt-1:sha1", "evt-1:sha2"]
+
+
+async def test_push_skips_merge_and_already_pushed_commits():
+    svc = _make_svc()
+    svc._xp.award = AsyncMock()
+    svc._streak.record_activity = AsyncMock()
+    event_row = {
+        "id": "evt-2", "event_type": "push", "actor": "devuser", "guild_id": GUILD_ID,
+        "payload": {"pusher": {"name": "devuser"}, "ref": "refs/heads/main", "commits": [
+            {"id": "sha1", "message": "real work", "distinct": True},
+            {"id": "sha2", "message": "Merge pull request #4 from x/y", "distinct": True},
+            {"id": "sha3", "message": "seen on the feature branch", "distinct": False},
+        ]},
+    }
+
+    with patch.object(svc, "get_member_by_github", AsyncMock(return_value=_member())),             patch("app.services.github_service.get_current_streak", AsyncMock(return_value=0)),             patch("app.services.github_service.BadgeService") as badge_cls,             patch.object(svc, "_post_to_channel", AsyncMock()):
+        badge_cls.return_value.check_and_award = AsyncMock(return_value=[])
+        await svc.process_push(event_row)
+
+    keys = [call.kwargs["dedupe_key"] for call in svc._xp.award.await_args_list]
+    assert keys == ["evt-2:sha1"]
+
+
+def _review_event(state: str, reviewer: str = "devuser", author: str = "someone", action: str = "submitted") -> dict:
+    return {
+        "id": "evt-3", "event_type": "pull_request_review", "actor": reviewer, "guild_id": GUILD_ID,
+        "payload": {
+            "action": action,
+            "review": {"state": state, "user": {"login": reviewer}},
+            "pull_request": {"number": 7, "title": "t", "html_url": "u", "user": {"login": author}},
+        },
+    }
+
+
+async def _run_review(event_row: dict) -> tuple[GitHubService, AsyncMock]:
+    svc = _make_svc()
+    svc._xp.award = AsyncMock(return_value=MagicMock(duplicate=False))
+    post = AsyncMock()
+    with patch.object(svc, "get_member_by_github", AsyncMock(return_value=_member())),             patch.object(svc, "_post_to_channel", post),             patch.object(svc, "_increment_stat", AsyncMock()) as inc:
+        await svc.process_review(event_row)
+    post.assert_awaited_once()
+    return svc, inc
+
+
+@pytest.mark.parametrize("state", ["approved", "changes_requested", "APPROVED"])
+async def test_review_verdict_awards_xp(state):
+    svc, inc = await _run_review(_review_event(state))
+    svc._xp.award.assert_awaited_once()
+    inc.assert_awaited_once()
+
+
+@pytest.mark.parametrize("event_row", [
+    _review_event("commented"),
+    _review_event("dismissed", action="dismissed"),
+    _review_event("approved", action="edited"),
+    _review_event("approved", reviewer="DevUser", author="devuser"),
+])
+async def test_review_without_a_verdict_or_on_own_pr_awards_nothing(event_row):
+    svc, inc = await _run_review(event_row)
+    svc._xp.award.assert_not_awaited()
+    inc.assert_not_awaited()

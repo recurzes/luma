@@ -2,7 +2,7 @@
 
 Discord bot for the Lab Manual Architect dev team.
 
-**Stack:** Python 3.12 · discord.py · Supabase (Postgres) · SQLModel · FastAPI · APScheduler · Docker
+**Stack:** Python 3.12 · discord.py · Supabase (Postgres) · Pydantic · FastAPI · APScheduler · Docker
 
 ## Quick Start
 
@@ -10,8 +10,8 @@ Discord bot for the Lab Manual Architect dev team.
 cp .env.example .env
 # fill in .env values
 
-pip install .
-python app/bot.py
+uv sync
+uv run python -m app.bot
 ```
 
 ## Docker
@@ -83,8 +83,11 @@ Apply migrations to Supabase in order:
 # via supabase CLI or directly in SQL Editor, in numeric order
 psql $SUPABASE_URL -f app/migrations/001_bot_tables.sql
 psql $SUPABASE_URL -f app/migrations/002_seed.sql
-# ... 004 through 015
+# ... 004 through 016
 ```
 
 `015_multi_guild.sql` splits data per server. Before running it, set `home_guild` at the top of
 the file to the Discord server ID that owns the existing data, stop the bot, apply it, then deploy.
+
+`016_github_username_unique.sql` allows each GitHub username once per server. It stops with a list
+if two members of a server already share one; clear the wrong one and run it again.
